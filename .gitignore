@@ -1,0 +1,18 @@
+# environments and caches
+.venv/
+__pycache__/
+# large or regenerable artifacts: datasets, ONNX/weights, TensorRT engines, training runs
+data/
+models/
+engines/
+runs/
+weights/
+*.log
+*.pt
+# personal notes, not project documentation
+career/
+
+# local working notes, not published
+workspace/
+# invalid runs kept locally for the record
+results/superseded/

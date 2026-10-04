@@ -1,0 +1,1099 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fieldbench results</title>
+<meta name="description" content="Handheld-class computer-vision benchmarks on NVIDIA Jetson, measured against published handheld figures.">
+<style>
+  /* Color roles (the same meaning in every chart):
+     --accent  the Jetson result a chapter is about      --context  other Jetson configurations
+     --ref     the handheld's published figure (ink)      --cost     the cost: CPU-bound stages, lost accuracy, DVFS tax
+     Accent and cost are slots 1-2 of the reference categorical palette, validated light and dark. */
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    --accent: #2a78d6;
+    --cost: #eb6834;
+    --cost-2: #f3ab8e;
+    --context: #b9b7af;
+    --ref: #0b0b0b;
+    --wash: rgba(11, 11, 11, 0.04);
+    --chip: #f0efec;
+    --link: #1c5cab;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page: #0d0d0d;
+      --surface: #1a1a19;
+      --ink: #ffffff;
+      --ink-2: #c3c2b7;
+      --muted: #898781;
+      --grid: #2c2c2a;
+      --baseline: #383835;
+      --border: rgba(255, 255, 255, 0.10);
+      --accent: #3987e5;
+      --cost: #d95926;
+      --cost-2: #8d4021;
+      --context: #5f5e59;
+      --ref: #ffffff;
+      --wash: rgba(255, 255, 255, 0.05);
+      --chip: #2c2c2a;
+      --link: #86b6ef;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --accent: #3987e5;
+    --cost: #d95926;
+    --cost-2: #8d4021;
+    --context: #5f5e59;
+    --ref: #ffffff;
+    --wash: rgba(255, 255, 255, 0.05);
+    --chip: #2c2c2a;
+    --link: #86b6ef;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 1080px; margin: 0 auto; padding: 28px 16px 48px; }
+  a { color: var(--link); text-underline-offset: 2px; }
+  a:focus-visible, button:focus-visible, summary:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px;
+  }
+
+  /* masthead */
+  .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .kicker { font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); }
+  .theme { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
+  .theme button {
+    font: inherit; font-size: 12px; color: var(--ink-2); background: none; border: 0; padding: 4px 10px; cursor: pointer;
+  }
+  .theme button[aria-pressed="true"] { background: var(--chip); color: var(--ink); font-weight: 600; }
+  h1 { font-size: clamp(26px, 3.6vw, 38px); line-height: 1.18; letter-spacing: -0.015em; font-weight: 650; margin: 14px 0 12px; max-width: 920px; text-wrap: balance; }
+  .standfirst { font-size: 17px; color: var(--ink-2); max-width: 70ch; margin: 0; }
+  .meta { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 12px; font-size: 13px; color: var(--ink-2); }
+  .meta b { color: var(--ink); font-weight: 600; }
+
+  /* KPI strip */
+  .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 26px; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px 15px; min-width: 0; }
+  .kpi .v { font-size: 36px; font-weight: 650; line-height: 1.1; letter-spacing: -0.02em; }
+  .kpi .v small { font-size: 17px; font-weight: 550; color: var(--ink-2); margin-left: 3px; letter-spacing: 0; }
+  .kpi .l { font-size: 14px; font-weight: 600; margin-top: 6px; line-height: 1.35; }
+  .kpi .c { font-size: 13px; color: var(--ink-2); margin-top: 4px; line-height: 1.4; }
+  .kpi.hero { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+  .kpi.hero .v { color: var(--ink); }
+  .kpi .bar { height: 4px; border-radius: 2px; background: var(--accent); margin-bottom: 12px; width: 28px; }
+  @media (max-width: 900px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 420px) { .kpi .v { font-size: 30px; } .kpi { padding: 14px; } }
+
+  /* the story in one list */
+  .story { margin-top: 26px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px 8px; }
+  .story h2 { font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 8px; }
+  .story ol { margin: 0; padding: 0; list-style: none; counter-reset: s; }
+  .story li { counter-increment: s; display: grid; grid-template-columns: 30px 1fr; gap: 4px; padding: 7px 0; border-top: 1px solid var(--grid); }
+  .story li:first-child { border-top: 0; }
+  .story li::before { content: counter(s, decimal-leading-zero); font-size: 13px; font-weight: 600; color: var(--muted); padding-top: 2px; font-variant-numeric: tabular-nums; }
+  .story a { color: var(--ink); text-decoration: none; }
+  .story a:hover { text-decoration: underline; }
+
+  /* color key */
+  .key { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 18px 2px 0; font-size: 13px; color: var(--ink-2); }
+  .key span { display: inline-flex; align-items: center; gap: 7px; }
+  .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  .sw.accent { background: var(--accent); }
+  .sw.context { background: var(--context); }
+  .sw.cost { background: var(--cost); }
+  .sw.cost2 { background: var(--cost-2); }
+  .sw.ref { width: 2px; height: 14px; border-radius: 0; background: var(--ref); margin: 0 5px; }
+  .sw.dot { border-radius: 50%; }
+
+  /* chapters */
+  .chapter { margin-top: 56px; scroll-margin-top: 16px; }
+  .chapter .num { font-size: 13px; font-weight: 600; color: var(--ink-2);
+ letter-spacing: 0.06em; font-variant-numeric: tabular-nums; }
+  .chapter h2 { font-size: clamp(21px, 2.4vw, 26px); line-height: 1.25; font-weight: 650; letter-spacing: -0.01em; margin: 4px 0 10px; max-width: 860px; text-wrap: balance; }
+  .chapter .lede { color: var(--ink-2); margin: 0 0 18px; max-width: 72ch; }
+  .chapter .lede b { color: var(--ink); font-weight: 600; }
+  .figs { display: grid; gap: 14px; }
+  .figs.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .figs.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  @media (max-width: 860px) { .figs.two, .figs.three { grid-template-columns: minmax(0, 1fr); } }
+  figure { margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px 12px; min-width: 0; }
+  figcaption .ft { font-size: 15px; font-weight: 600; line-height: 1.35; }
+  figcaption .fs { font-size: 13px; color: var(--ink-2); margin-top: 2px; line-height: 1.4; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; color: var(--ink-2); margin-top: 10px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .plot { position: relative; margin-top: 12px; min-height: 40px; }
+  .plot svg { display: block; overflow: visible; }
+  .after { font-size: 13px; color: var(--ink-2); margin: 12px 2px 0; max-width: 80ch; }
+  .source { font-size: 12px; color: var(--ink-2); margin: 10px 2px 0; }
+
+  /* svg text and marks */
+  svg text { fill: var(--ink-2); font-size: 12px; font-family: inherit; }
+  svg text.tick { font-size: 11px; font-variant-numeric: tabular-nums; }
+  svg text.lab { fill: var(--ink); }
+  svg text.sub { fill: var(--ink-2); font-size: 11px; }
+  svg text .b, svg text.b { fill: var(--ink); font-weight: 600; }
+  svg text .m { fill: var(--ink-2); font-weight: 400; }
+  svg text.head { fill: var(--ink); font-size: 12px; font-weight: 600; }
+  svg .lbg { fill: var(--surface); }
+  svg .cost2 { fill: var(--cost-2); }
+  svg text.on-dark { fill: #ffffff; }
+  svg text.on-light { fill: #0b0b0b; }
+  svg .halo { paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+  svg .grid { stroke: var(--grid); stroke-width: 1; shape-rendering: crispEdges; }
+  svg .base { stroke: var(--baseline); stroke-width: 1; shape-rendering: crispEdges; }
+  svg .accent { fill: var(--accent); }
+  svg .cost { fill: var(--cost); }
+  svg .context { fill: var(--context); }
+  svg .s-accent { stroke: var(--accent); }
+  svg .s-cost { stroke: var(--cost); }
+  svg .s-context { stroke: var(--context); }
+  svg .refl { stroke: var(--ref); stroke-width: 1.5; }
+  svg .ln { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  svg .conn { stroke-width: 2.5; stroke-linecap: round; }
+  svg .ring { stroke: var(--surface); stroke-width: 2; }
+  svg .leader { stroke: var(--muted); stroke-width: 1; }
+  svg .hit { fill: transparent; }
+  svg g.row:focus-visible .hit { stroke: var(--accent); stroke-width: 2; }
+  svg g.row { outline: none; }
+
+  /* tooltip */
+  #tip {
+    position: fixed; z-index: 20; pointer-events: none; opacity: 0; transition: opacity 80ms;
+    background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.16); padding: 9px 12px; font-size: 13px; max-width: 300px; line-height: 1.45;
+  }
+  #tip.on { opacity: 1; }
+  #tip .t { font-weight: 600; margin-bottom: 3px; }
+  #tip .r { display: flex; justify-content: space-between; gap: 16px; font-variant-numeric: tabular-nums; }
+  #tip .r span:first-child { color: var(--ink-2); }
+
+  /* appendix */
+  .appendix { margin-top: 64px; }
+  .appendix h2 { font-size: 22px; font-weight: 650; margin: 0 0 6px; }
+  details { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; margin-top: 12px; }
+  summary { cursor: pointer; padding: 14px 18px; font-weight: 600; list-style-position: inside; }
+  summary .cnt { font-weight: 400; color: var(--ink-2); font-size: 14px; margin-left: 6px; }
+  details > .inner { padding: 0 18px 16px; }
+  .table-wrap { overflow-x: auto; border-top: 1px solid var(--grid); }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+  caption { text-align: left; font-weight: 600; padding: 14px 0 8px; }
+  th, td { padding: 5px 9px; line-height: 1.35; text-align: right; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th { font-weight: 600; color: var(--ink-2); font-size: 12px; vertical-align: bottom; position: sticky; top: 0; background: var(--surface); }
+  th button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit; }
+  th[aria-sort="ascending"] button::after { content: " \2191"; }
+  th[aria-sort="descending"] button::after { content: " \2193"; }
+  td.t, th.t { text-align: left; }
+  tbody tr:hover { background: var(--wash); }
+  .chip { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 4px; background: var(--chip); color: var(--ink-2); }
+  ul.caveats { margin: 0; padding: 0 0 0 18px; color: var(--ink-2); max-width: 80ch; }
+  ul.caveats li + li { margin-top: 6px; }
+  ul.caveats b { color: var(--ink); font-weight: 600; }
+
+  footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--grid); font-size: 13px; color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 4px 18px; }
+  footer b { color: var(--ink); font-weight: 600; }
+
+  @media print {
+    :root { color-scheme: light; }
+    body { background: #fff; }
+    .theme, #tip { display: none !important; }
+    figure, .kpi, .story li { break-inside: avoid; }
+    .chapter { break-before: auto; margin-top: 32px; }
+    a { color: inherit; }
+  }
+  @media (forced-colors: active) {
+    svg .accent, svg .cost, svg .context { forced-color-adjust: none; }
+  }
+</style>
+</head>
+<body>
+<main id="app">
+  <noscript><p>This report draws its charts with JavaScript. The raw measurements are in the repository's <code>results/*.jsonl</code> files.</p></noscript>
+</main>
+<div id="tip" role="tooltip"></div>
+<script>
+"use strict";
+const DATA = /*__DATA__*/null;
+
+/* ============================================================== small DOM + format helpers */
+const SVGNS = "http://www.w3.org/2000/svg";
+function add(e, kids) {
+  for (const k of [kids].flat(Infinity)) if (k != null && k !== false) e.append(k instanceof Node ? k : document.createTextNode(String(k)));
+  return e;
+}
+function H(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k === "html") e.innerHTML = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v === true ? "" : v);
+  }
+  return add(e, kids);
+}
+function S(tag, attrs = {}, ...kids) {
+  const e = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) if (v != null && v !== false) e.setAttribute(k, v);
+  return add(e, kids);
+}
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const r1 = (v, d) => Number(v).toFixed(d);
+const fmtMs = (v) => v == null ? "–" : `${r1(v, v < 10 ? 2 : 1)} ms`;
+const fmtRef = (v) => Number.isInteger(v) ? `${v} ms` : fmtMs(v);
+const fmtX = (v, d = 2) => v == null ? "–" : `${r1(v, d)}×`;
+const fmtMj = (v) => v == null ? "–" : `${r1(v, v < 100 ? 1 : 0)} mJ`;
+const fmtPct = (v, d = 0) => v == null ? "–" : `${r1(v * 100, d)}%`;
+const fmtW = (v) => v == null ? "–" : `${r1(v, 1)} W`;
+const fmtMode = (m) => m === "MAXN_SUPER" ? "MAXN SUPER" : String(m || "").replace(/^(\d+)W$/, "$1 W");
+const fmtPrec = (p, cal) => !p ? "–" : p.toUpperCase() + (p === "int8" && cal ? ` ${cal === "minmax" ? "MinMax" : cal[0].toUpperCase() + cal.slice(1)}` : "");
+const pipeName = (p) => p === "ocr" ? "OCR" : p === "barcode" ? "Barcode" : p;
+/* percent change computed from the values as displayed (0.1 ms / 1 mJ), so prose matches the labels */
+const pctDrop = (from, to) => { const f = Math.round(from * 10) / 10, t = Math.round(to * 10) / 10; return (f - t) / f; };
+const range = (vals, f) => { const lo = Math.min(...vals), hi = Math.max(...vals); return r1(f(lo), 0) === r1(f(hi), 0) ? `${r1(f(lo), 0)}` : `${r1(f(lo), 0)}–${r1(f(hi), 0)}`; };
+const plural = (n, one, many) => n === 1 ? one : many;
+/* "a" or "an" before a number as spoken: an 8, an 11, an 18, an 80 */
+const art = (num) => /^(8|11|18|8\d)(\D|$)/.test(String(num)) || /^8\d\d(\D|$)/.test(String(num)) ? "an" : "a";
+
+
+/* text measurement, so labels are placed (or wrapped) instead of colliding */
+const MEASURE = document.createElement("canvas").getContext("2d");
+let FAMILY = "system-ui, sans-serif";
+function tw(text, size = 12, weight = 400) { MEASURE.font = `${weight} ${size}px ${FAMILY}`; return MEASURE.measureText(String(text)).width; }
+function spansW(spans, size = 12) { return spans.reduce((a, s) => a + tw(s.t, size, s.b ? 600 : 400), 0); }
+function wrap(text, maxW, size = 12, weight = 400) {
+  const words = String(text).split(/\s+/), lines = [];
+  let cur = "";
+  for (const w of words) {
+    const next = cur ? `${cur} ${w}` : w;
+    if (cur && tw(next, size, weight) > maxW) { lines.push(cur); cur = w; } else cur = next;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+/* <text> made of spans: [{t, b: bold}] ; cls adds e.g. "halo" */
+function T(x, y, spans, { size = 12, anchor = "start", cls = "", weight } = {}) {
+  if (typeof spans === "string") spans = [{ t: spans }];
+  const e = S("text", { x, y, "text-anchor": anchor, "dominant-baseline": "central", class: cls || null, "font-size": size, "font-weight": weight });
+  for (const s of spans) e.append(S("tspan", { class: s.b ? "b" : s.m ? "m" : null }, s.t));
+  return e;
+}
+/* a label on a surface-colored plate, so a gridline or reference line never runs through its glyphs */
+function TB(x, y, spans, opt = {}) {
+  if (typeof spans === "string") spans = [{ t: spans }];
+  const size = opt.size || 12, wd = spansW(spans, size), anchor = opt.anchor || "start";
+  const left = anchor === "end" ? x - wd : anchor === "middle" ? x - wd / 2 : x;
+  return S("g", {}, S("rect", { x: left - 3, y: y - size * 0.72, width: wd + 6, height: size * 1.44, rx: 3, class: "lbg" }), T(x, y, spans, opt));
+}
+const nb = (s) => String(s).replace(/-/g, "‑");
+function niceStep(max, count) {
+
+  const raw = max / Math.max(1, count), p = Math.pow(10, Math.floor(Math.log10(raw))), n = raw / p;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p;
+}
+function ticks(max, count) { const st = niceStep(max, count), out = []; for (let v = 0; v <= max + st * 1e-6; v += st) out.push(+v.toFixed(10)); if (out[out.length - 1] < max - 1e-9) out.push(out[out.length - 1] + st); return out; }
+function tickFmt(step) { const d = step >= 1 ? 0 : step >= 0.1 ? 1 : 2; return (v) => r1(v, d); }
+/* bar with a 4px rounded data end and a square baseline end */
+function barPath(x, y, len, h, r = 4) {
+  if (len <= 0) return "";
+  r = Math.min(r, len, h / 2);
+  return `M${x},${y}h${len - r}a${r},${r} 0 0 1 ${r},${r}v${h - 2 * r}a${r},${r} 0 0 1 ${-r},${r}h${-(len - r)}z`;
+}
+function colPath(x, base, w, len, r = 4) {
+  if (len <= 0) return "";
+  r = Math.min(r, len, w / 2);
+  return `M${x},${base}v${-(len - r)}a${r},${r} 0 0 1 ${r},${-r}h${w - 2 * r}a${r},${r} 0 0 1 ${r},${r}v${len - r}z`;
+}
+function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function lum(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || ""); if (!m) return 0.5;
+  const n = parseInt(m[1], 16), c = [n >> 16, (n >> 8) & 255, n & 255].map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+/* ink that clears contrast on a filled mark: white or near-black by the fill's luminance */
+function inkOn(tone) { const L = lum(cssVar(`--${tone}`)); return (1.05 / (L + 0.05)) >= ((L + 0.05) / 0.0558) ? "on-dark" : "on-light"; }
+const tipAttr = (title, rows) => JSON.stringify({ title, rows });
+
+/* ============================================================== responsive figures */
+const FIGS = [];
+function figure({ title, sub, legend, draw, aria }) {
+  const plot = H("div", { class: "plot" });
+  const fig = H("figure", { "aria-label": aria || title },
+    H("figcaption", {}, H("div", { class: "ft" }, title), sub ? H("div", { class: "fs" }, sub) : null),
+    legend ? H("div", { class: "legend", "aria-hidden": "true" }, legend.map(([cls, text]) => H("span", {}, H("i", { class: `sw ${cls}` }), text))) : null,
+    plot);
+  FIGS.push({ plot, draw, aria: aria || title });
+  return fig;
+}
+function drawAll(force) {
+  for (const f of FIGS) {
+    const w = Math.floor(f.plot.clientWidth);
+    if (!w || (!force && w === f.w)) continue;
+    f.w = w;
+    const svg = f.draw(w);
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", f.aria);
+    f.plot.replaceChildren(svg);
+  }
+}
+function svgRoot(w, h) { return S("svg", { width: w, height: Math.ceil(h), viewBox: `0 0 ${w} ${Math.ceil(h)}` }); }
+
+/* Narrow screens: row labels and the right-hand summary move onto a header line above the marks. */
+const NARROW = 440;
+function joinRight(right) { return right.filter((s) => s.length && s.some((x) => x.t)).flatMap((s, i) => i ? [{ t: " · ", m: true }, ...s] : s); }
+function narrowHead(w, left, right) {
+  return spansW(left) + spansW(right) + 14 <= w ? [{ left, right }] : [{ left, right: [] }, { left: right, right: [] }];
+}
+function drawHead(g, head, y, w) {
+  head.forEach((ln, i) => {
+    if (ln.left.length) g.append(TB(0, y + i * 16, ln.left, { cls: "lab" }));
+    if (ln.right.length) g.append(TB(w, y + i * 16, ln.right, { anchor: "end" }));
+  });
+}
+
+/* ============================================================== chart: horizontal bars
+   rows: [{header} | {label, value, tone, spans, tip}] ; one scale per chart */
+function hbar(w, o) {
+  const rows = o.rows, data = rows.filter((r) => !r.header);
+  const valW = Math.max(...data.map((r) => spansW(r.spans))) + 14;
+  let labelW = Math.min(Math.max(...data.map((r) => tw(r.label))), w * 0.36);
+  if (w - labelW - valW < w * 0.42) labelW = Math.max(64, w - valW - w * 0.42);
+  const x0 = labelW + 12, x1 = w - valW;
+  const maxV = o.max ?? Math.max(...data.map((r) => r.value), o.refLine ? o.refLine.value : 0);
+  const tk = ticks(maxV, Math.max(2, Math.min(5, Math.floor((x1 - x0) / 80)))), dom = o.max ?? tk[tk.length - 1];
+  const sx = (v) => x0 + (x1 - x0) * v / dom, fmt = o.fmtTick || tickFmt(tk[1] - tk[0]);
+  const top = o.refLine ? 26 : 4, barH = 16;
+  let y = top;
+  const placed = rows.map((r) => {
+    if (r.header) { const h = { r, y: y + (y > top ? 12 : 0) }; y = h.y + 22; return h; }
+    const lines = wrap(r.label, labelW);
+    const hgt = Math.max(30, lines.length * 15 + 10);
+    const p = { r, y, h: hgt, lines }; y += hgt; return p;
+  });
+  const plotBottom = y, svg = svgRoot(w, y + 24);
+  for (const v of tk) {
+    const x = sx(v);
+    svg.append(S("line", { x1: x, x2: x, y1: top - 4, y2: plotBottom, class: v === 0 ? "base" : "grid" }));
+    svg.append(T(x, plotBottom + 13, fmt(v) + (v === tk[tk.length - 1] && o.unit ? ` ${o.unit}` : ""), { anchor: v === 0 ? "start" : "middle", cls: "tick" }));
+  }
+  const over = [];
+  for (const p of placed) {
+    if (p.r.header) { svg.append(T(0, p.y + 9, p.r.header, { cls: "head" })); continue; }
+    const cy = p.y + p.h / 2, r = p.r;
+    const g = S("g", { class: "row", tabindex: r.tip ? 0 : null, "data-tip": r.tip || null });
+    g.append(S("rect", { class: "hit", x: 0, y: p.y + 1, width: w, height: p.h - 2, rx: 6 }));
+    p.lines.forEach((ln, i) => g.append(T(0, cy + (i - (p.lines.length - 1) / 2) * 15, ln, { cls: "lab" })));
+    g.append(S("path", { d: barPath(x0, cy - barH / 2, sx(r.value) - x0, barH), class: r.tone }));
+    over.push(TB(sx(r.value) + 7, cy, r.spans));
+    svg.append(g);
+  }
+  if (o.refLine) {
+    const x = sx(o.refLine.value), sp = [{ t: o.refLine.label, b: true }], lw = spansW(sp);
+    svg.append(S("line", { x1: x, x2: x, y1: top - 8, y2: plotBottom, class: "refl" }));
+    svg.append(T(Math.min(Math.max(x - lw / 2, x0), w - lw), top - 17, sp));
+  }
+  over.forEach((t) => svg.append(t));
+  return svg;
+}
+
+/* ============================================================== chart: stacked horizontal bars (one shared scale)
+   rows: [{label, sub, segs: [{v, tone, tip}], ref: {value}, right: [[spans],[spans]], tip}] */
+function stacked(w, o) {
+  const rows = o.rows, narrow = w < NARROW;
+  const rightW = narrow ? 2 : Math.max(...rows.map((r) => Math.max(...r.right.map((s) => spansW(s))))) + 16;
+  let labelW = Math.min(Math.max(...rows.map((r) => Math.max(tw(r.label, 12, 600), tw(r.sub || "", 11)))), w * 0.26);
+  if (w - labelW - rightW < w * 0.45) labelW = Math.max(70, w - rightW - w * 0.45);
+  const x0 = narrow ? 1 : labelW + 14, x1 = w - rightW;
+  const maxV = Math.max(...rows.map((r) => Math.max(r.segs.reduce((a, s) => a + s.v, 0), r.ref ? r.ref.value : 0)));
+  const tk = ticks(maxV, Math.max(2, Math.min(5, Math.floor((x1 - x0) / 80)))), dom = tk[tk.length - 1];
+  const sx = (v) => x0 + (x1 - x0) * v / dom, fmt = tickFmt(tk[1] - tk[0]);
+  const barH = 24, top = 6;
+  let y = top;
+  const placed = rows.map((r) => {
+    if (narrow) {
+      const head = narrowHead(w, [{ t: r.label, b: true }], joinRight(r.rightNarrow || r.right));
+      const sub = r.sub ? wrap(r.sub, w, 11) : [];
+      const headH = head.length * 16 + sub.length * 14;
+      const p = { r, y, h: headH + barH + 14, head, sub, headH }; y += p.h + 6; return p;
+    }
+    const lab = wrap(r.label, labelW, 12, 600), sub = r.sub ? wrap(r.sub, labelW, 11) : [];
+    const leftH = lab.length * 15 + sub.length * 14;
+    const h = Math.max(barH + 20, leftH + 14, r.right.length * 16 + 12);
+    const p = { r, y, h, lab, sub }; y += h + 6; return p;
+  });
+  const plotBottom = y - 6, svg = svgRoot(w, plotBottom + 24);
+  for (const v of tk) {
+    const x = sx(v);
+    svg.append(S("line", { x1: x, x2: x, y1: top, y2: plotBottom, class: v === 0 ? "base" : "grid" }));
+    svg.append(T(x, plotBottom + 13, fmt(v) + (v === tk[tk.length - 1] ? " ms" : ""), { anchor: v === 0 ? "start" : "middle", cls: "tick" }));
+  }
+  const over = [];
+  for (const p of placed) {
+    const r = p.r, cy = narrow ? p.y + p.headH + 6 + barH / 2 : p.y + p.h / 2, by = cy - barH / 2;
+    const g = S("g", { class: "row", tabindex: 0, "data-tip": r.tip });
+    g.append(S("rect", { class: "hit", x: 0, y: p.y, width: w, height: p.h, rx: 6 }));
+    if (narrow) {
+      drawHead(g, p.head, p.y + 8, w);
+      p.sub.forEach((ln, i) => g.append(TB(0, p.y + 8 + p.head.length * 16 + i * 14, [{ t: ln }], { cls: "sub", size: 11 })));
+
+    } else {
+      const textH = p.lab.length * 15 + p.sub.length * 14, ty = cy - textH / 2 + 7;
+      p.lab.forEach((ln, i) => g.append(T(0, ty + i * 15, ln, { cls: "lab", weight: 600 })));
+      p.sub.forEach((ln, i) => g.append(T(0, ty + p.lab.length * 15 + i * 14, ln, { cls: "sub" })));
+    }
+    let acc = 0;
+    r.segs.forEach((s, i) => {
+      const a = sx(acc), b = sx(acc + s.v), last = i === r.segs.length - 1; acc += s.v;
+      const wd = Math.max(0.5, b - a - (last ? 0 : 2));
+      g.append(S("path", { d: last ? barPath(a, by, wd, barH) : `M${a},${by}h${wd}v${barH}h${-wd}z`, class: s.tone, "data-tip": s.tip }));
+      const txt = r1(s.v, 0);
+      if (tw(txt, 11, 600) + 8 <= wd) g.append(T(a + wd / 2, cy, [{ t: txt }], { anchor: "middle", size: 11, cls: inkOn(s.tone === "cost2" ? "cost-2" : s.tone), weight: 600 }));
+    });
+    if (r.ref) { const x = sx(r.ref.value); over.push(S("line", { x1: x, x2: x, y1: by - 5, y2: by + barH + 5, class: "refl" })); }
+    if (!narrow) r.right.forEach((sp, i) => over.push(T(x1 + 16, cy + (i - (r.right.length - 1) / 2) * 16, sp)));
+    svg.append(g);
+  }
+  over.forEach((e) => svg.append(e));
+  return svg;
+}
+
+/* ============================================================== chart: dumbbell (before -> after on one scale)
+   rows: [{label, a, b, ref, aText, bText, right: [[spans],[spans]], tip}] ; a = before (context dot), b = after (accent dot) */
+function dumbbell(w, o) {
+  const rows = o.rows, narrow = w < NARROW;
+  const rightW = narrow ? 0 : Math.max(...rows.map((r) => Math.max(...r.right.map((s) => spansW(s)))), o.rightHead ? tw(o.rightHead, 11) : 0) + 16;
+  let labelW = Math.min(Math.max(...rows.map((r) => tw(r.label))), w * 0.3);
+  if (w - labelW - rightW < w * 0.45) labelW = Math.max(60, w - rightW - w * 0.45);
+  const loW = Math.max(...rows.map((r) => r.a <= r.b ? tw(r.aText) : tw(r.bText, 12, 600)));
+  const x1 = w - rightW - (narrow ? 34 : 4), minX = narrow ? 2 : labelW + 12;
+  const maxV = Math.max(...rows.map((r) => Math.max(r.a, r.b, r.ref ? r.ref.value : 0)));
+  let x0 = narrow ? loW + 16 : minX;
+  const tk = ticks(maxV, Math.max(2, Math.min(5, Math.floor((x1 - x0) / 80)))), dom = tk[tk.length - 1];
+  // shift the plot right until every left-hand value label clears the row labels
+  for (let k = 0; k < 4; k++) {
+    let need = 0;
+    for (const r of rows) {
+      const lo = Math.min(r.a, r.b), lw = r.a <= r.b ? tw(r.aText) : tw(r.bText, 12, 600);
+      need = Math.max(need, minX + lw + 14 - (x0 + (x1 - x0) * lo / dom));
+    }
+    if (need <= 0) break;
+    x0 += need;
+  }
+  const sx = (v) => x0 + (x1 - x0) * v / dom, fmt = tickFmt(tk[1] - tk[0]);
+  const top = o.rightHead && !narrow ? 22 : 4;
+  let y = top;
+  const placed = rows.map((r) => {
+    if (narrow) { const head = narrowHead(w, [{ t: r.label, b: true }], joinRight(r.rightNarrow || r.right)); const p = { r, y, head, h: head.length * 16 + 34 }; y += p.h; return p; }
+    const lines = wrap(r.label, labelW); const h = Math.max(46, lines.length * 15 + 14); const p = { r, y, h, lines }; y += h; return p;
+  });
+  const plotBottom = y, svg = svgRoot(w, plotBottom + 24);
+  for (const v of tk) {
+    const x = sx(v);
+    svg.append(S("line", { x1: x, x2: x, y1: top, y2: plotBottom, class: v === 0 ? "base" : "grid" }));
+    svg.append(T(x, plotBottom + 13, fmt(v) + (v === tk[tk.length - 1] ? ` ${o.unit || "ms"}` : ""), { anchor: v === 0 ? "start" : "middle", cls: "tick" }));
+  }
+  if (o.rightHead && !narrow) svg.append(T(x1 + 20, 8, o.rightHead, { cls: "tick" }));
+  const over = [];
+  for (const p of placed) {
+    const r = p.r, cy = narrow ? p.y + p.head.length * 16 + 14 : p.y + p.h / 2, xa = sx(r.a), xb = sx(r.b);
+    const g = S("g", { class: "row", tabindex: 0, "data-tip": r.tip });
+    g.append(S("rect", { class: "hit", x: 0, y: p.y + 1, width: w, height: p.h - 2, rx: 6 }));
+    if (narrow) drawHead(g, p.head, p.y + 8, w);
+    else p.lines.forEach((ln, i) => g.append(T(0, cy + (i - (p.lines.length - 1) / 2) * 15, ln, { cls: "lab" })));
+    if (r.ref) g.append(S("line", { x1: sx(r.ref.value), x2: sx(r.ref.value), y1: cy - 13, y2: cy + 13, class: "refl" }));
+    g.append(S("line", { x1: xa, x2: xb, y1: cy, y2: cy, class: `conn s-${o.conn || "context"}` }));
+    g.append(S("circle", { cx: xa, cy, r: 5.5, class: "context ring" }));
+    g.append(S("circle", { cx: xb, cy, r: 5.5, class: "accent ring" }));
+    // labels go outward: the larger value right of its dot, the smaller left of its dot
+    const [lo, hi] = r.a <= r.b ? [[xa, r.aText, false], [xb, r.bText, true]] : [[xb, r.bText, true], [xa, r.aText, false]];
+    const loSp = [{ t: lo[1], b: lo[2], m: !lo[2] }], hiSp = [{ t: hi[1], b: hi[2], m: !hi[2] }];
+    over.push(TB(lo[0] - 12, cy, loSp, { anchor: "end" }));
+    over.push(TB(hi[0] + 12, cy, hiSp));
+    if (!narrow) r.right.forEach((sp, i) => over.push(T(x1 + 20, cy + (i - (r.right.length - 1) / 2) * 16, sp)));
+    svg.append(g);
+  }
+  over.forEach((e) => svg.append(e));
+  return svg;
+}
+
+/* ============================================================== chart: lines over ordered categories
+   series: [{name, vals (null = missing), tone, end: spans, tips}] ; ref: {value, label} */
+function lines(w, o) {
+  const h = o.height || 250, top = 24, bottom = 30;
+  const maxV = Math.max(...o.series.flatMap((s) => s.vals.filter((v) => v != null)), o.ref ? o.ref.value : 0);
+  const tk = ticks(maxV, 4), dom = tk[tk.length - 1], fmt = o.fmtTick || tickFmt(tk[1] - tk[0]);
+  const leftW = Math.max(...tk.map((v) => tw(fmt(v), 11))) + 8;
+  const endW = Math.max(...o.series.map((s) => spansW(s.end))) + 10;
+  const x0 = leftW, x1 = w - endW, n = o.cats.length;
+  const padL = Math.max(18, tw(o.cats[0], 11) / 2 + 4), padR = 8;
+  const sx = (i) => n === 1 ? (x0 + x1) / 2 : x0 + padL + (x1 - padR - x0 - padL) * i / (n - 1);
+  const sy = (v) => top + (h - top - bottom) * (1 - v / dom);
+  const svg = svgRoot(w, h);
+  for (const v of tk) {
+    svg.append(S("line", { x1: x0, x2: x1, y1: sy(v), y2: sy(v), class: v === 0 ? "base" : "grid" }));
+    svg.append(T(x0 - 8, sy(v), fmt(v), { anchor: "end", cls: "tick" }));
+  }
+  o.cats.forEach((c, i) => {
+    const lw = tw(c, 11), x = Math.min(Math.max(sx(i), x0 + lw / 2), w - lw / 2);
+    svg.append(T(x, h - bottom + 16, c, { anchor: "middle", cls: "tick" }));
+  });
+  if (o.ref) {
+    const y = sy(o.ref.value);
+    svg.append(S("line", { x1: x0, x2: x1, y1: y, y2: y, class: "refl" }));
+    svg.append(TB(x0 + 6, y - 11, [{ t: o.ref.label, b: true }]));
+  }
+  const order = [...o.series].sort((a, b) => (a.tone === "accent") - (b.tone === "accent"));
+  const ends = [];
+  for (const s of order) {
+    const pts = s.vals.map((v, i) => v == null ? null : [sx(i), sy(v)]).filter(Boolean);
+    if (!pts.length) continue;
+    const g = S("g", {});
+    g.append(S("path", { d: "M" + pts.map((p) => p.join(",")).join("L"), class: `ln s-${s.tone}` }));
+    s.vals.forEach((v, i) => {
+      if (v == null) return;
+      g.append(S("circle", { cx: sx(i), cy: sy(v), r: 4.5, class: `${s.tone} ring`, tabindex: s.tips && s.tips[i] ? 0 : null, "data-tip": s.tips ? s.tips[i] : null }));
+    });
+    svg.append(g);
+    const last = pts[pts.length - 1];
+    ends.push({ y: last[1], y0: last[1], x: last[0], s });
+  }
+  // end labels sit right of the plot, at least 15px apart, with a hairline leader when nudged
+  ends.sort((a, b) => a.y - b.y);
+  for (let i = 1; i < ends.length; i++) if (ends[i].y - ends[i - 1].y < 15) ends[i].y = ends[i - 1].y + 15;
+  for (let i = ends.length - 1; i >= 0; i--) {
+    const lim = i === ends.length - 1 ? h - bottom : ends[i + 1].y - 15;
+    if (ends[i].y > lim) ends[i].y = lim;
+  }
+  for (const e of ends) {
+    if (Math.abs(e.y - e.y0) > 2) svg.append(S("polyline", { points: `${e.x + 7},${e.y0} ${x1 + 2},${e.y}`, class: "leader", fill: "none" }));
+    svg.append(T(x1 + 6, e.y, e.s.end));
+  }
+  for (const c of o.callouts || []) {
+    const s = o.series[c.si], v = s.vals[c.xi]; if (v == null) continue;
+    svg.append(TB(sx(c.xi) + (c.dx || 0), sy(v) + (c.dy || 0), c.spans, { anchor: c.anchor || "start" }));
+  }
+  return svg;
+}
+
+/* ============================================================== chart: columns (small multiple)
+   cols: [{label, value, tone, cap: spans, under: [text, ...], tip}] ; dom = shared max */
+function columns(w, o) {
+  const n = o.cols.length, top = 22, underN = Math.max(...o.cols.map((c) => c.under.length));
+  const h = o.height || 200, bottom = 18 + underN * 15;
+  const slot = w / n, cw = Math.min(o.barW || 32, slot * 0.5), base = h - bottom;
+  const sy = (v) => (base - top) * v / o.dom;
+  const svg = svgRoot(w, h);
+  if (o.guide) {
+    const y = base - sy(o.guide.value);
+    svg.append(S("line", { x1: 0, x2: w, y1: y, y2: y, class: "grid" }));
+    svg.append(T(w, y - 9, o.guide.label, { anchor: "end", cls: "tick halo" }));
+  }
+  svg.append(S("line", { x1: 0, x2: w, y1: base, y2: base, class: "base" }));
+  o.cols.forEach((c, i) => {
+    const cx = slot * (i + 0.5);
+    const g = S("g", { class: "row", tabindex: 0, "data-tip": c.tip });
+    g.append(S("rect", { class: "hit", x: slot * i + 2, y: 0, width: slot - 4, height: h, rx: 6 }));
+    g.append(S("path", { d: colPath(cx - cw / 2, base, cw, sy(c.value)), class: c.tone }));
+    g.append(T(cx, base - sy(c.value) - 11, c.cap, { anchor: "middle" }));
+    c.under.forEach((u, k) => g.append(T(cx, base + 12 + k * 15, typeof u === "string" ? [{ t: u, b: k === 0 }] : u, { anchor: "middle", size: k === 0 ? 12 : 11, cls: k === 0 ? "" : "sub" })));
+    svg.append(g);
+  });
+  return svg;
+}
+
+/* ============================================================== tooltip (enhancement only; every value is also labeled or in the appendix) */
+const tip = document.getElementById("tip");
+function showTip(target, x, y) {
+  let d; try { d = JSON.parse(target.getAttribute("data-tip")); } catch { return; }
+  tip.replaceChildren(H("div", { class: "t" }, d.title), ...(d.rows || []).map(([k, v]) => H("div", { class: "r" }, H("span", {}, k), H("span", {}, v))));
+  tip.classList.add("on");
+  const r = tip.getBoundingClientRect();
+  let left = x + 14, topY = y + 14;
+  if (left + r.width > innerWidth - 8) left = Math.max(8, x - r.width - 14);
+  if (topY + r.height > innerHeight - 8) topY = Math.max(8, y - r.height - 14);
+  tip.style.left = `${left}px`; tip.style.top = `${topY}px`;
+}
+document.addEventListener("pointermove", (e) => { const t = e.target.closest && e.target.closest("[data-tip]"); if (t) showTip(t, e.clientX, e.clientY); else tip.classList.remove("on"); });
+document.addEventListener("focusin", (e) => { const t = e.target.closest && e.target.closest("[data-tip]"); if (t) { const b = t.getBoundingClientRect(); showTip(t, b.left + Math.min(b.width, 260) / 2, b.top + b.height / 2); } else tip.classList.remove("on"); });
+document.addEventListener("focusout", () => tip.classList.remove("on"));
+addEventListener("scroll", () => tip.classList.remove("on"), { passive: true });
+
+/* ============================================================== chapters
+   Each render function returns {id, title, lede (HTML, values escaped), figs: [figure], layout, after, sources}
+   or null to hide the chapter. Titles and ledes are built only from the payload. */
+const sourcesLine = (s) => s && s.length ? `Data: run${plural(s.length, "", "s")} ${s.join(", ")} (results/*.jsonl). Charts compare rows from these sessions only.` : "";
+const by = (arr, f) => Object.fromEntries(arr.map((x) => [f(x), x]));
+
+function renderModels(d) {
+  const ms = Object.values(d.models).map((rows) => {
+    const p = by(rows, (r) => r.precision), ref = rows[0].ref;
+    return { rows, p, ref, name: rows[0].name, model: rows[0].model };
+  }).filter((m) => m.ref);
+  if (!ms.length) return null;
+  const best = (m) => m.p.int8 || m.p.fp16;
+  const ratio = (m, r) => m.ref.ms / r.p50;
+  const parts = ms.map((m) => `${nb(m.name)} ${fmtX(ratio(m, best(m)))}`);
+  const y = ms[0];
+  const title = `With INT8, the Jetson GPU matches the handheld’s NPU: ${parts.join(", ")} the QCS6490’s speed`;
+  const fp16 = y.p.fp16 ? ratio(y, y.p.fp16) : null;
+  const lede = `GPU time per inference for the bare networks (p50, batch 1, MAXN SUPER), against the fastest published QCS6490 NPU result for the same model (${esc(y.ref.runtime)} ${esc(y.ref.precision)}). `
+    + (fp16 != null ? `FP16 alone already ${fp16 >= 0.995 ? "matches" : "reaches"} <b>${fmtX(fp16)}</b> on ${esc(y.name)}. ` : "")
+    + `Above 1× the Jetson is faster.`;
+  const figs = ms.map((m) => figure({
+    title: `${m.name}`, sub: `GPU time per inference, p50 (ms) · ${m.model === "yolo11n" ? "640×640 detector" : "224×224 classifier"} · ratio vs the NPU`,
+    aria: `${m.name}: GPU p50 by precision against the QCS6490 NPU at ${fmtMs(m.ref.ms)}`,
+    draw: (w) => hbar(w, {
+      unit: "ms", refLine: { value: m.ref.ms, label: `QCS6490 NPU ${fmtMs(m.ref.ms)}` },
+      rows: m.rows.map((r) => ({
+        label: r.precision.toUpperCase(), value: r.p50, tone: r === best(m) ? "accent" : "context",
+        spans: [{ t: fmtMs(r.p50), b: true }, { t: `  ${fmtX(ratio(m, r))}`, m: true }],
+        tip: tipAttr(`${m.name} ${r.precision.toUpperCase()}`, [["GPU p50", fmtMs(r.p50)], ["GPU p99", fmtMs(r.p99)], ["vs QCS6490", fmtX(ratio(m, r))], ["Energy / inference", fmtMj(r.mj)], ["Board power", fmtW(r.watts)]]),
+      })),
+    }),
+  }));
+  const int8Uncal = ms.some((m) => m.p.int8 && !m.p.int8.int8_calibrated);
+  return { id: "models", title, lede, figs, layout: "two",
+    after: int8Uncal ? "Phase 1 INT8 engines use TensorRT’s implicit quantization without a calibration set: the timing is representative, the accuracy is not. Chapter 05 covers calibrated INT8 accuracy." : "",
+    sources: d.sources, kpi: { y, ratio: ratio(y, best(y)), r: best(y) } };
+}
+
+function renderPower(d) {
+  const modes = d.modes, rows = d.rows;
+  const get = (model, prec, mode) => rows.find((r) => r.model === model && r.precision === prec && r.power_mode === mode);
+  const model = "yolo11n", prec = ["fp32", "fp16", "int8"].filter((p) => modes.some((m) => get(model, p, m)));
+  const anyRow = rows.find((r) => r.model === model);
+  if (!anyRow || !prec.length) return null;
+  const ref = anyRow.ref.ms, name = anyRow.name;
+  const ratio = (r) => r ? ref / r.p50 : null;
+  const paritymode = modes.find((m) => (ratio(get(model, "int8", m)) || 0) >= 1);
+  const below = modes[modes.indexOf(paritymode) - 1];
+  const yBelow = ratio(get(model, "int8", below));
+  const mb = rows.find((r) => r.model === "mobilenetv3l");
+  const mbBelow = mb ? get("mobilenetv3l", "int8", below) : null;
+  // energy per inference in each mode from 15 W up, relative to the top mode (7 W is the outlier, discussed separately)
+  const upper = modes.filter((m) => m !== "7W"), top = modes[modes.length - 1];
+  let spread = 0;
+  for (const mdl of new Set(rows.map((r) => r.model))) for (const p of ["fp32", "fp16", "int8"]) {
+    const t = get(mdl, p, top);
+    if (t) for (const m of upper) { const r = get(mdl, p, m); if (r) spread = Math.max(spread, Math.abs(r.mj - t.mj) / t.mj); }
+  }
+  const precGain = get(model, "fp32", top) && get(model, "int8", top) ? get(model, "fp32", top).mj / get(model, "int8", top).mj : null;
+  const w7 = get(model, "int8", "7W"), w15 = get(model, "int8", "15W");
+  const title = paritymode && below
+    ? `…but parity takes ${fmtMode(paritymode)} or more: at ${fmtMode(below)} the Jetson drops to ${fmtX(yBelow)} of the NPU’s speed`
+    : `Power mode sets latency; precision sets energy`;
+  const lede = `<b>Power mode is a latency knob; precision is the energy knob.</b> From ${fmtMode(upper[0])} to ${fmtMode(top)}, energy per inference stays within ±${fmtPct(spread)} of its ${fmtMode(top)} value for every model and precision, while FP32 → INT8 cuts it ${fmtX(precGain, 1)} for ${esc(name)}. `
+    + (w7 && w15 ? `7 W is the worst of both: ${fmtX(ratio(w7))} the NPU’s speed at ${fmtX(w7.mj / w15.mj, 1)} the energy of 15 W.` : "");
+  const tone = { int8: "accent", fp16: "context", fp32: "context" };
+  const tips = (p) => modes.map((m) => { const r = get(model, p, m); return r ? tipAttr(`${name} ${p.toUpperCase()} · ${fmtMode(m)}`, [["GPU p50", fmtMs(r.p50)], ["vs QCS6490", fmtX(ratio(r))], ["Energy / inference", fmtMj(r.mj)], ["Board power", fmtW(r.watts)], ["GPU clock", r.gpu_mhz ? `${r1(r.gpu_mhz, 0)} MHz` : "–"]]) : null; });
+  const cats = modes.map(fmtMode);
+  const parityIdx = modes.indexOf(below);
+  const figA = figure({
+    title: `Speed relative to the QCS6490 NPU, ${name}`, sub: "QCS6490 latency ÷ Jetson GPU p50 · above 1× the Jetson is faster",
+    aria: `${name} speed relative to the QCS6490 NPU by power mode and precision`,
+    draw: (w) => lines(w, {
+      cats, ref: { value: 1, label: "QCS6490 NPU = 1×" }, fmtTick: (v) => `${r1(v, 1)}×`,
+      series: prec.map((p) => ({ name: p, tone: tone[p], vals: modes.map((m) => ratio(get(model, p, m))), tips: tips(p),
+        end: [{ t: p.toUpperCase(), b: p === "int8" }, { t: ` ${fmtX(ratio(get(model, p, top)))}`, m: true }] })),
+      callouts: parityIdx >= 0 && prec.includes("int8") ? [{ si: prec.indexOf("int8"), xi: parityIdx, anchor: "end", dx: -9, dy: -12, spans: [{ t: fmtX(yBelow), b: true }, { t: ` at ${fmtMode(below)}`, m: true }] }] : [],
+    }),
+  });
+  const figB = figure({
+    title: `Energy per inference, ${name}`, sub: "Whole-board energy, mJ per inference · lower is better",
+    aria: `${name} energy per inference by power mode and precision`,
+    draw: (w) => lines(w, {
+      cats, fmtTick: (v) => r1(v, 0),
+      series: prec.map((p) => ({ name: p, tone: tone[p], vals: modes.map((m) => get(model, p, m)?.mj ?? null), tips: tips(p),
+        end: [{ t: p.toUpperCase(), b: p === "int8" }, { t: ` ${fmtMj(get(model, p, top)?.mj)}`, m: true }] })),
+    }),
+  });
+  const mbTop = mb ? get("mobilenetv3l", "int8", top) : null;
+  const after = mbBelow && mbTop ? `${nb("MobileNetV3-L")} follows the same pattern: INT8 runs at ${fmtX(mbBelow.ref.ms / mbBelow.p50)} the NPU’s speed at ${fmtMode(below)} and ${fmtX(mbTop.ref.ms / mbTop.p50)} at ${fmtMode(top)}. Lower modes do cut the energy of the work itself, but the dev kit’s idle draw (${fmtW(Math.min(...rows.map((r) => r.idle_watts).filter(Boolean)))}–${fmtW(Math.max(...rows.map((r) => r.idle_watts).filter(Boolean)))}) is paid for longer per frame.` : "";
+  return { id: "power", title, lede, figs: [figA, figB], layout: "two", after, sources: d.sources,
+    kpi: { precGain, fp32: get(model, "fp32", top), int8: get(model, "int8", top), name } };
+}
+
+function renderStages(d) {
+  const rows = d.rows;
+  if (!rows.length) return null;
+  const share = (r, cls) => r.stages.filter((s) => cls.includes(s.cls)).reduce((a, s) => a + s.mean, 0) / r.stages.reduce((a, s) => a + s.mean, 0);
+  const cpuShares = rows.map((r) => share(r, ["decode", "prep"])), netShares = rows.map((r) => share(r, ["net"]));
+  const title = `In a real pipeline the network is not the bottleneck: CPU decode and preprocessing take ${range(cpuShares, (v) => v * 100)}% of each frame`;
+  const lede = `Mean time per stage for one 4 MP JPEG frame in the baseline configuration: CPU JPEG decode, CPU preprocessing, FP16 networks, default clock governors. The networks themselves take only ${range(netShares, (v) => v * 100)}%. Ticks mark the Zebra TC53’s published time for the same job at the same detector size.`;
+  const tone = { decode: "cost", prep: "cost2", net: "accent", other: "context" };
+  const fig = figure({
+    title: "Where a frame’s time goes", sub: "Mean ms per stage, stacked in pipeline order · one scale for all three",
+    legend: [["cost", "CPU: JPEG decode"], ["cost2", "CPU: detector preprocessing"], ["accent", "GPU: networks"], ["context", "CPU: other stages"], ["ref", "Zebra TC53, published"]],
+    aria: "Per-stage time for barcode 640 px, OCR 1280 px and OCR 2560 px baseline pipelines",
+    draw: (w) => stacked(w, {
+      rows: rows.map((r, i) => {
+        const total = r.stages.reduce((a, s) => a + s.mean, 0);
+        return {
+          label: `${pipeName(r.pipeline)}, ${r.size} px`, sub: `${fmtPct(cpuShares[i])} in CPU decode + prep`,
+          segs: r.stages.map((s) => ({ v: s.mean, tone: tone[s.cls],
+            tip: tipAttr(s.name, [["Mean", fmtMs(s.mean)], ["p50", fmtMs(s.p50)], ["Share of frame", fmtPct(s.mean / total)]]) })),
+          ref: r.ref ? { value: r.ref.ms } : null,
+          right: [[{ t: fmtMs(total), b: true }], [{ t: r.ref ? `TC53 ${r1(r.ref.ms, 0)} ms` : "", m: true }]],
+          tip: tipAttr(`${pipeName(r.pipeline)} ${r.size} px, baseline`, [["Mean frame", fmtMs(total)], ["p50 frame", fmtMs(r.p50)], ["CPU decode + prep", fmtPct(cpuShares[i])], ["Networks (GPU)", fmtPct(netShares[i])], ["Zebra TC53", r.ref ? fmtMs(r.ref.ms) : "–"]]),
+        };
+      }),
+    }),
+  });
+  return { id: "stages", title, lede, figs: [fig], layout: "one",
+    after: "Stage times are means, so they add up to the mean frame; elsewhere this report quotes p50 per frame. “Other stages” are box postprocessing and zxing decoding (barcode), and box decoding, line crops and CTC decoding (OCR). Detector preprocessing at large OCR sizes is mostly NumPy’s float passes over the canvas, not the resize itself.",
+    sources: d.sources };
+}
+
+function renderGpuprep(d) {
+  const pairs = d.pairs.filter((p) => p.after.ref);
+  if (!pairs.length) return null;
+  const ratio = (r) => r.ref.ms / r.p50;
+  const ahead = pairs.filter((p) => ratio(p.after) >= 1), best = pairs.reduce((a, b) => ratio(b.after) > ratio(a.after) ? b : a);
+  const cut = pairs.reduce((a, b) => pctDrop(b.before.p50, b.after.p50) > pctDrop(a.before.p50, a.after.p50) ? b : a);
+  const eDrops = pairs.map((p) => pctDrop(p.before.mj, p.after.mj));
+  const behind = pairs.filter((p) => ratio(p.after) < 1);
+  const title = `Moving preprocessing into one CUDA kernel puts the Jetson ahead of the TC53 at ${ahead.length} of ${pairs.length} sizes, by up to ${fmtX(ratio(best.after))}`;
+  const lede = `p50 per frame with NVJPG hardware JPEG decode, before (OpenCV + NumPy preprocessing on the CPU) and after (one fused CUDA kernel, bit-exact with the CPU path). Each pair comes from one session with the default governors. The biggest cut is ${pipeName(cut.pipeline)} at ${cut.size} px: <b>${fmtMs(cut.before.p50)} → ${fmtMs(cut.after.p50)}</b> (−${fmtPct(pctDrop(cut.before.p50, cut.after.p50))}). Energy per frame falls ${range(eDrops, (v) => v * 100)}% across the board.`
+    + (behind.length ? ` ${behind.map((p) => `${pipeName(p.pipeline)} at ${p.size} px`).join(" and ")} still trail${plural(behind.length, "s", "")} the TC53 (${behind.map((p) => fmtX(ratio(p.after))).join(", ")}).` : "");
+  const groups = [...new Set(pairs.map((p) => p.pipeline))];
+  const figs = groups.map((g) => {
+    const ps = pairs.filter((p) => p.pipeline === g), prec = ps[0].after.precision;
+    return figure({
+      title: `${pipeName(g)} pipeline, ${prec.toUpperCase()} detector`, sub: "p50 per frame (ms) by detector input size",
+      legend: [["context dot", "CPU preprocessing"], ["accent dot", "GPU kernel"], ["ref", "Zebra TC53"]],
+      aria: `${pipeName(g)} p50 before and after GPU preprocessing, against the Zebra TC53`,
+      draw: (w) => dumbbell(w, {
+        rightHead: "vs TC53",
+        rows: ps.map((p) => ({
+          label: `${p.size} px`, a: p.before.p50, b: p.after.p50, ref: { value: p.after.ref.ms },
+          aText: r1(p.before.p50, p.before.p50 >= 100 ? 0 : 1), bText: r1(p.after.p50, p.after.p50 >= 100 ? 0 : 1),
+          right: [[{ t: fmtX(ratio(p.after)), b: true }], [{ t: `TC53 ${r1(p.after.ref.ms, 0)} ms`, m: true }]],
+          rightNarrow: [[{ t: fmtX(ratio(p.after)), b: true }, { t: ` vs TC53 (${r1(p.after.ref.ms, 0)} ms)`, m: true }]],
+          tip: tipAttr(`${pipeName(g)} ${p.size} px`, [["CPU prep p50", fmtMs(p.before.p50)], ["GPU prep p50", fmtMs(p.after.p50)], ["Zebra TC53", fmtMs(p.after.ref.ms)], ["Energy / frame", `${fmtMj(p.before.mj)} → ${fmtMj(p.after.mj)}`], ["Accuracy", `${fmtPct(p.before.accuracy, 1)} → ${fmtPct(p.after.accuracy, 1)}`]]),
+        })),
+      }),
+    });
+  });
+  const same = pairs.every((p) => Math.abs(p.before.accuracy - p.after.accuracy) < 1e-9);
+  return { id: "gpuprep", title, lede, figs, layout: figs.length > 1 ? "two" : "one",
+    after: same ? "Accuracy is identical before and after in every pair: the kernel reproduces OpenCV’s SIMD rounding, so the detector sees the same input." : "",
+    sources: d.sources, kpi: { best, ratio: ratio(best.after), bc640: pairs.find((p) => p.pipeline === "barcode" && p.size === 640) } };
+}
+
+function renderAccuracy(d) {
+  const rows = d.rows;
+  const groups = [];
+  for (const r of rows) {
+    const k = `${r.pipeline}|${r.size}`;
+    let g = groups.find((x) => x.k === k); if (!g) groups.push(g = { k, pipeline: r.pipeline, size: r.size, rows: [] });
+    g.rows.push(r);
+  }
+  const both = groups.filter((g) => g.rows.some((r) => r.precision === "fp16") && g.rows.some((r) => r.precision === "int8"));
+  if (!both.length) return null;
+  const fp = (g) => g.rows.find((r) => r.precision === "fp16");
+  const drops = both.flatMap((g) => g.rows.filter((r) => r.precision === "int8").map((r) => ({ g, r, drop: fp(g).accuracy - r.accuracy })));
+  const worst = drops.reduce((a, b) => b.drop > a.drop ? b : a);
+  const bcDrops = drops.filter((x) => x.g.pipeline === "barcode").map((x) => x.drop);
+  const ent = drops.find((x) => x.g.pipeline === "ocr" && x.r.calibrator === "entropy");
+  const collapse = (x) => x.drop > 0.05;
+  const title = `Accuracy holds, except INT8 on the OCR text detector: exact lines fall from ${fmtPct(fp(worst.g).accuracy)} to ${fmtPct(worst.r.accuracy)}`;
+  const lede = (bcDrops.length ? `Calibrated INT8 (MinMax) keeps the barcode detector within <b>${r1(Math.max(...bcDrops) * 100, 1)} points</b> of FP16 at every size. ` : "")
+    + `On the OCR text detector, MinMax calibration crushes ordinary activations into a few INT8 levels; the detector fragments text into extra boxes, and the pipeline gets both slower and far less accurate`
+    + (ent ? `. Entropy calibration recovers only to ${fmtPct(ent.r.accuracy)}` : "") + `. The OCR detector stays FP16.`;
+  const fig = (pipe) => {
+    const gs = both.filter((g) => g.pipeline === pipe);
+    if (!gs.length) return null;
+    const metric = pipe === "ocr" ? "Text lines read exactly" : "Barcodes decoded";
+    const rowsOut = [];
+    for (const g of gs) {
+      rowsOut.push({ header: `${g.size} px detector` });
+      const f = fp(g);
+      for (const r of [f, ...g.rows.filter((x) => x.precision === "int8")]) {
+        const drop = f.accuracy - r.accuracy, bad = r.precision === "int8" && drop > 0.05;
+        rowsOut.push({
+          label: fmtPrec(r.precision, r.calibrator), value: r.accuracy * 100,
+          tone: r.precision === "fp16" ? "context" : bad ? "cost" : "accent",
+          spans: [{ t: fmtPct(r.accuracy, 1), b: true }, ...(r.precision === "int8" ? [{ t: `  ${drop > 0 ? "−" : "+"}${r1(Math.abs(drop) * 100, 1)} pts`, m: true }] : [])],
+          tip: tipAttr(`${pipeName(pipe)} ${g.size} px ${fmtPrec(r.precision, r.calibrator)}`, [[metric, fmtPct(r.accuracy, 1)], ["Boxes per frame", r.boxes_per_frame != null ? r1(r.boxes_per_frame, 1) : "–"], ["p50 per frame", fmtMs(r.p50)]]),
+        });
+      }
+    }
+    return figure({
+      title: `${pipeName(pipe)}: ${metric.toLowerCase()}`, sub: `Share of the ${pipe === "ocr" ? "1,394 ground-truth lines" : "677 ground-truth barcodes"} (%)`,
+      legend: [["context", "FP16"], ["accent", "INT8, within 5 points"], ["cost", "INT8, accuracy lost"]],
+      aria: `${pipeName(pipe)} accuracy by precision and calibrator`,
+      draw: (w) => hbar(w, { rows: rowsOut, max: 100, unit: "%", fmtTick: (v) => r1(v, 0) }),
+    });
+  };
+  const figs = [fig("barcode"), fig("ocr")].filter(Boolean);
+  const slow = worst.g.pipeline === "ocr" ? worst : null;
+  return { id: "accuracy", title, lede, figs, layout: figs.length > 1 ? "two" : "one",
+    after: slow && slow.r.boxes_per_frame && fp(slow.g).boxes_per_frame ? `${pipeName(slow.g.pipeline)} ${slow.g.size} px, ${fmtPrec(slow.r.precision, slow.r.calibrator)}: ${r1(slow.r.boxes_per_frame, 1)} boxes per frame instead of ${r1(fp(slow.g).boxes_per_frame, 1)}, and ${fmtMs(slow.r.p50)} per frame instead of ${fmtMs(fp(slow.g).p50)}, because every extra box goes through the recognizer.` : "",
+    sources: d.sources };
+}
+
+function renderDvfs(d) {
+  const pairs = d.pairs;
+  if (!pairs.length) return null;
+  const tax = pairs.map((p) => pctDrop(p.default.p50, p.locked.p50));
+  const eChange = pairs.map((p) => -pctDrop(p.default.mj, p.locked.mj));
+  const noMore = eChange.every((c) => c <= 0.02);
+  const title = `The default clock governors hide ${art(range(tax, (v) => v * 100))} ${range(tax, (v) => v * 100)}% latency tax${noMore ? ", and locking the clocks costs no extra energy per frame" : ""}`;
+  const lede = `The same configuration (NVJPG decode, GPU preprocessing, FP16) with the default DVFS governors and with clocks locked by <code>jetson_clocks</code>. The stages run one after another, so the CPU, GPU and memory controller each sit partly idle and their governors keep clocks low. Locked runs draw more board power (${range(pairs.map((p) => p.locked.watts), (v) => v)} W vs ${range(pairs.map((p) => p.default.watts), (v) => v)} W) but finish sooner, so energy per frame ${noMore ? "stays the same or drops" : "changes"} (${eChange.map((c) => `${c <= 0 ? "−" : "+"}${r1(Math.abs(c) * 100, 0)}%`).join(", ")}).`;
+  const fig = figure({
+    title: "Default governors vs locked clocks", sub: "p50 per frame (ms)",
+    legend: [["context dot", "Default governors"], ["accent dot", "Locked clocks"], ["cost", "DVFS tax"]],
+    aria: "p50 per frame with default governors and with locked clocks",
+    draw: (w) => dumbbell(w, {
+      conn: "cost", rightHead: "locked vs default",
+      rows: pairs.map((p, i) => ({
+        label: `${pipeName(p.pipeline)}, ${p.size} px`, a: p.default.p50, b: p.locked.p50,
+        aText: r1(p.default.p50, 1), bText: r1(p.locked.p50, 1),
+        right: [[{ t: `−${fmtPct(tax[i])}`, b: true }, { t: " latency", m: true }], [{ t: `${eChange[i] <= 0 ? "−" : "+"}${r1(Math.abs(eChange[i]) * 100, 0)}% energy / frame`, m: true }]],
+        tip: tipAttr(`${pipeName(p.pipeline)} ${p.size} px`, [["Default p50", fmtMs(p.default.p50)], ["Locked p50", fmtMs(p.locked.p50)], ["Board power", `${fmtW(p.default.watts)} → ${fmtW(p.locked.watts)}`], ["Energy / frame", `${fmtMj(p.default.mj)} → ${fmtMj(p.locked.mj)}`], ["GPU clock (mean)", `${r1(p.default.gpu_mhz, 0)} → ${r1(p.locked.gpu_mhz, 0)} MHz`], ["Zebra TC53", p.locked.ref ? fmtMs(p.locked.ref.ms) : "–"]]),
+      })),
+    }),
+  });
+  const lowest = pairs.reduce((a, b) => (b.default.gpu_mhz || 1e9) < (a.default.gpu_mhz || 1e9) ? b : a);
+  return { id: "dvfs", title, lede, figs: [fig], layout: "one",
+    after: `At ${pipeName(lowest.pipeline).toLowerCase()} ${lowest.size} px the GPU averaged ${r1(lowest.default.gpu_mhz, 0)} MHz under the default governor, against ${r1(lowest.locked.gpu_mhz, 0)} MHz locked. Locking clocks needs root; a handheld gets the same effect from Android’s input and camera boost hints. Default-governor numbers also move 10–25% between sessions, which is why every comparison here stays within one session.`,
+    sources: d.sources };
+}
+
+function renderOverlap(d) {
+  const series = d.series;
+  if (!series.length) return null;
+  const mult = (s) => s.points[s.points.length - 1].fps / s.points[0].fps;
+  const lat = (s) => s.points[s.points.length - 1].p50 / s.points[0].p50 - 1;
+  const best = series.reduce((a, b) => mult(b) > mult(a) ? b : a);
+  const others = series.filter((s) => s !== best);
+  const nW = best.points[best.points.length - 1].workers;
+  const latTxt = (v) => v <= 0.02 ? (v < -0.02 ? `while p50 falls ${fmtPct(-v)}` : "at no latency cost") : `at +${fmtPct(v)} p50`;
+  const otherBest = others.length ? Math.max(...others.map(mult)) : null;
+  const title = `Overlapping frames multiplies ${pipeName(best.pipeline).toLowerCase()} throughput ${fmtX(mult(best), 1)} with ${nW} workers ${latTxt(lat(best))}`
+    + (others.length ? `; ${pipeName(others[0].pipeline)} gains less (up to ${fmtX(otherBest, 1)}) and pays in latency` : "");
+  const lede = `Several copies of the pipeline run as threads on consecutive frames, so one frame’s CPU stages overlap another’s GPU work. This keeps the units busy and lets the governors raise clocks without root: ${pipeName(best.pipeline).toLowerCase()} ${best.size} px went from ${r1(best.points[0].gpu_mhz, 0)} to ${r1(best.points[best.points.length - 1].gpu_mhz, 0)} MHz average GPU clock, and energy per frame fell from ${fmtMj(best.points[0].mj)} to ${fmtMj(best.points[best.points.length - 1].mj)}. `
+    + (others.length ? `OCR’s stages are longer and contend for the same GPU, so its per-frame latency grows with each worker.` : "");
+  const figs = series.map((s) => {
+    const base = s.points[0].fps, domMax = Math.max(...series.map((x) => Math.max(...x.points.map((p) => p.fps / x.points[0].fps), x.points[x.points.length - 1].workers)));
+    const last = s.points[s.points.length - 1];
+    return figure({
+      title: `${pipeName(s.pipeline)}, ${s.size} px`, sub: `Throughput vs 1 worker · ${s.points[0].jpeg === "nvjpg" ? "NVJPG" : "CPU"} decode, ${s.points[0].prep.toUpperCase()} prep, ${s.points[0].precision.toUpperCase()}`,
+      aria: `${pipeName(s.pipeline)} ${s.size} px throughput and latency by worker count`,
+      draw: (w) => columns(w, {
+        dom: domMax * 1.08, height: 210, barW: 28,
+        cols: s.points.map((p) => ({
+          value: p.fps / base, tone: p === last ? "accent" : "context",
+          cap: [{ t: fmtX(p.fps / base, 1), b: true }],
+          under: [`${p.workers} worker${plural(p.workers, "", "s")}`, `${r1(p.fps, 1)} fps`, `p50 ${r1(p.p50, 0)} ms`],
+          tip: tipAttr(`${pipeName(s.pipeline)} ${s.size} px, ${p.workers} worker${plural(p.workers, "", "s")}`, [["Throughput", `${r1(p.fps, 1)} fps`], ["p50 per frame", fmtMs(p.p50)], ["p90 per frame", fmtMs(p.p90)], ["Energy / frame", fmtMj(p.mj)], ["GPU clock (mean)", `${r1(p.gpu_mhz, 0)} MHz`]]),
+        })),
+      }),
+    });
+  });
+  return { id: "overlap", title, lede, figs, layout: figs.length >= 3 ? "three" : figs.length === 2 ? "two" : "one",
+    after: `Throughput is frames completed per second across all workers; p50 (ms) is per-frame latency. Accuracy is unchanged: each worker runs the same pipeline on its own frames.`,
+    sources: d.sources, kpi: { best, mult: mult(best) } };
+}
+
+/* Add a chapter: append {key, render} here and the matching payload key in host/report.py. */
+const CHAPTERS = [
+  { key: "models", render: renderModels },
+  { key: "power", render: renderPower },
+  { key: "stages", render: renderStages },
+  { key: "gpuprep", render: renderGpuprep },
+  { key: "accuracy", render: renderAccuracy },
+  { key: "dvfs", render: renderDvfs },
+  { key: "overlap", render: renderOverlap },
+];
+
+/* ============================================================== appendix */
+function sortable(table) {
+  const ths = [...table.tHead.rows[0].cells];
+  ths.forEach((th, i) => {
+    const btn = th.querySelector("button");
+    btn.addEventListener("click", () => {
+      const dir = th.getAttribute("aria-sort") === "ascending" ? "descending" : "ascending";
+      ths.forEach((t) => t.removeAttribute("aria-sort")); th.setAttribute("aria-sort", dir);
+      const body = table.tBodies[0], rows = [...body.rows];
+      rows.sort((a, b) => {
+        const x = a.cells[i].dataset.v, y = b.cells[i].dataset.v, nx = parseFloat(x), ny = parseFloat(y);
+        const c = !isNaN(nx) && !isNaN(ny) ? nx - ny : String(x).localeCompare(String(y));
+        return dir === "ascending" ? c : -c;
+      });
+      body.append(...rows);
+    });
+  });
+  return table;
+}
+function table(caption, cols, rows) {
+  return sortable(H("table", {},
+    H("caption", {}, caption),
+    H("thead", {}, H("tr", {}, cols.map((c) => H("th", { class: c.t ? "t" : null, scope: "col" }, H("button", { type: "button" }, c.h))))),
+    H("tbody", {}, rows.map((r) => H("tr", {}, cols.map((c) => { const v = c.v(r); return H("td", { class: c.t ? "t" : null, "data-v": v == null ? "" : (c.sort ? c.sort(r) : v) }, v == null ? "–" : c.f ? c.f(v, r) : v); }))))));
+}
+function renderAppendix() {
+  const A = DATA.appendix;
+  const mt = table("Model benchmarks (bare networks, batch 1)", [
+    { h: "Model", t: 1, v: (r) => r.name }, { h: "Precision", t: 1, v: (r) => r.precision.toUpperCase() },
+    { h: "Power mode", t: 1, v: (r) => fmtMode(r.power_mode) }, { h: "Clocks", t: 1, v: (r) => r.clocks_locked ? "locked" : "default" },
+    { h: "GPU p50 (ms)", v: (r) => r.p50, f: (v) => r1(v, 2) }, { h: "GPU p99 (ms)", v: (r) => r.p99, f: (v) => r1(v, 2) },
+    { h: "vs QCS6490", v: (r) => r.ref ? r.ref.ms / r.p50 : null, f: (v) => fmtX(v) },
+    { h: "FPS", v: (r) => r.fps, f: (v) => r1(v, 0) }, { h: "Board W", v: (r) => r.watts, f: (v) => r1(v, 1) },
+    { h: "mJ / inf", v: (r) => r.mj, f: (v) => r1(v, 1) }, { h: "Tj max (°C)", v: (r) => r.tj_max, f: (v) => r1(v, 1) },
+    { h: "Run", t: 1, v: (r) => r.label }, { h: "Time", t: 1, v: (r) => r.timestamp.replace("T", " ").slice(0, 16) },
+  ], A.models);
+  const pt = table("Pipelines (4 MP JPEG frames)", [
+    { h: "Pipeline", t: 1, v: (r) => r.mode === "zxing" ? "Barcode (zxing, whole frame)" : pipeName(r.pipeline) },
+    { h: "Size", v: (r) => r.size }, { h: "Precision", t: 1, v: (r) => fmtPrec(r.precision, r.calibrator) },
+    { h: "JPEG", t: 1, v: (r) => r.jpeg === "nvjpg" ? "NVJPG" : "CPU" }, { h: "Prep", t: 1, v: (r) => r.mode === "zxing" ? null : r.prep.toUpperCase() },
+    { h: "Workers", v: (r) => r.workers }, { h: "Clocks", t: 1, v: (r) => r.clocks_locked ? "locked" : "default" },
+    { h: "p50 (ms)", v: (r) => r.p50, f: (v) => r1(v, 1) }, { h: "p90 (ms)", v: (r) => r.p90, f: (v) => r1(v, 1) },
+    { h: "vs TC53", v: (r) => r.ref ? r.ref.ms / r.p50 : null, f: (v) => fmtX(v) },
+    { h: "FPS", v: (r) => r.fps, f: (v) => r1(v, 1) }, { h: "Board W", v: (r) => r.watts, f: (v) => r1(v, 1) },
+    { h: "mJ / frame", v: (r) => r.mj, f: (v) => r1(v, 0) }, { h: "Accuracy", v: (r) => r.accuracy, f: (v) => fmtPct(v, 1) },
+    { h: "GPU MHz", v: (r) => r.gpu_mhz, f: (v) => r1(v, 0) }, { h: "Throttle events", v: (r) => r.throttle },
+    { h: "Run", t: 1, v: (r) => r.label }, { h: "Time", t: 1, v: (r) => r.timestamp.replace("T", " ").slice(0, 16) },
+  ], A.pipelines);
+  const n = A.models.length + A.pipelines.length;
+  const thr = A.pipelines.filter((r) => r.throttle > 0), tjMax = Math.max(...[...A.models, ...A.pipelines].map((r) => r.tj_max || 0));
+
+  return H("section", { class: "appendix", id: "appendix", "aria-labelledby": "appendix-h" },
+    H("h2", { id: "appendix-h" }, "Appendix"),
+    H("details", {},
+      H("summary", {}, "All measurements", H("span", { class: "cnt" }, `${n} configurations · click a column to sort`)),
+      H("div", { class: "inner" },
+        H("p", { class: "after" }, "One row per configuration; when a configuration was measured in several runs, the most recent row is shown. Chapters above compare rows from named sessions instead (listed under each chart), so a few chapter numbers come from an earlier run of the same configuration. Accuracy: barcodes decoded, or OCR lines read exactly."),
+        H("div", { class: "table-wrap" }, mt), H("div", { class: "table-wrap" }, pt))),
+    H("details", {},
+      H("summary", {}, "How to read these numbers"),
+      H("div", { class: "inner" }, H("ul", { class: "caveats" },
+        H("li", { html: "<b>GPU vs NPU.</b> Phase 1 compares Jetson GPU time with the QCS6490’s published NPU time for the same network. The handheld’s NPU is a dedicated, far lower-power unit." }),
+        H("li", { html: "<b>Board power, not SoC power.</b> Energy is whole-board input power (dev kit, about 5–6 W idle) over the timed loop. A handheld SoC idles far lower, so absolute energy favors the handheld; the comparisons here are between Jetson configurations." }),
+        H("li", { html: "<b>Zebra figures are published, not measured here.</b> TC53 times come from Zebra’s AI Data Capture SDK documentation for the same job at the same detector input size; the models differ." }),
+        H("li", { html: "<b>Default clocks move between sessions.</b> With DVFS active the same configuration varies 10–25% across sessions; comparisons are made within one session." }),
+        thr.length ? H("li", { html: `<b>Throttle events.</b> ${thr.length} of ${A.pipelines.length} pipeline configurations logged throttle events during the timed loop (column in the table); the highest junction temperature in any row was ${r1(tjMax, 0)} °C.` }) : null,
+        H("li", { html: "<b>Synthetic test sets.</b> Barcode and OCR frames are generated with exact ground truth; accuracy on real photos has not been measured yet." }),
+        H("li", { html: `Full definitions and caveats: <a href="../docs/methodology.md">methodology</a>, <a href="../docs/results-phase1.md">Phase 1 results</a>, <a href="../docs/results-phase2.md">Phase 2 results</a>.` }),
+      ))));
+}
+
+/* ============================================================== page */
+function kpiTile({ value, unit, label, caption, hero }) {
+  return H("div", { class: `kpi${hero ? " hero" : ""}` }, H("div", { class: "bar", "aria-hidden": "true" }),
+    H("div", { class: "v" }, value, unit ? H("small", {}, unit) : null), H("div", { class: "l" }, label), H("div", { class: "c" }, caption));
+}
+function themeControl() {
+  const get = () => document.documentElement.getAttribute("data-theme") || "auto";
+  const set = (t) => {
+    if (t === "auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.setAttribute("data-theme", t);
+    try { localStorage.setItem("fieldbench-theme", t); } catch { /* storage unavailable */ }
+    box.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.t === t)));
+    drawAll(true);
+  };
+  const box = H("div", { class: "theme", role: "group", "aria-label": "Color theme" },
+    ["auto", "light", "dark"].map((t) => H("button", { type: "button", "data-t": t, "aria-pressed": String(get() === t), onclick: () => set(t) }, t[0].toUpperCase() + t.slice(1))));
+  return box;
+}
+
+function main() {
+  try { const t = (location.hash.match(/theme=(light|dark)/) || [])[1] || localStorage.getItem("fieldbench-theme"); if (t && t !== "auto") document.documentElement.setAttribute("data-theme", t); } catch { /* storage unavailable */ }
+  FAMILY = getComputedStyle(document.body).fontFamily;
+  const app = document.getElementById("app");
+  const built = [];
+  for (const c of CHAPTERS) {
+    if (!DATA[c.key]) continue;
+    const ch = c.render(DATA[c.key]);
+    if (ch) built.push(ch);
+  }
+  const K = Object.fromEntries(built.map((c) => [c.id, c.kpi]));
+
+  // verdict + KPI strip, computed from the chapters
+  const board = DATA.board_short || "The Jetson";
+  const gp = K.gpuprep, md = K.models, ov = K.overlap;
+  const h1 = gp
+    ? `A ${board} keeps pace with a Zebra TC53 handheld on barcode and OCR, and runs up to ${fmtX(gp.ratio, 1)} faster once the CPU stages move to the GPU`
+    : `${board}: handheld-class computer vision, measured`;
+  const tiles = [];
+  if (gp) tiles.push(kpiTile({ hero: true, value: fmtX(gp.ratio), label: `${pipeName(gp.best.pipeline)} at ${gp.best.size} px vs the Zebra TC53`, caption: `${fmtMs(gp.best.after.p50)} vs ${fmtRef(gp.best.after.ref.ms)} per frame, with NVJPG decode and GPU preprocessing` }));
+
+  if (gp && gp.bc640) tiles.push(kpiTile({ value: r1(gp.bc640.after.p50, 1), unit: "ms", label: "Barcode frame at 640 px", caption: `p50 per 4 MP frame vs the TC53’s ${r1(gp.bc640.after.ref.ms, 0)} ms (${fmtX(gp.bc640.after.ref.ms / gp.bc640.after.p50)}); ${fmtPct(gp.bc640.after.accuracy, 1)} of barcodes read` }));
+  if (md) tiles.push(kpiTile({ value: fmtX(md.ratio), label: `${nb(md.y.name)} ${md.r.precision.toUpperCase()} vs the QCS6490 NPU`, caption: `${fmtMs(md.r.p50)} GPU time vs ${fmtMs(md.y.ref.ms)} published, at MAXN SUPER` }));
+  const e32 = md && md.y.p.fp32, e8 = md && md.y.p.int8;
+  if (e32 && e8) tiles.push(kpiTile({ value: fmtX(e32.mj / e8.mj, 1), label: "Less energy per inference, FP32 → INT8", caption: `${md.y.name}: ${r1(e32.mj, 0)} → ${r1(e8.mj, 0)} mJ per inference, whole board. The power mode moves it far less.` }));
+
+
+  else if (ov) tiles.push(kpiTile({ value: fmtX(ov.mult, 1), label: "Throughput from overlapping frames", caption: `${pipeName(ov.best.pipeline)} ${ov.best.size} px` }));
+
+  const tPhase = DATA.appendix.models.length && DATA.appendix.pipelines.length ? "Phase 1 models · Phase 2 pipelines" : "";
+  add(app, [
+    H("header", {},
+      H("div", { class: "top" }, H("div", { class: "kicker" }, `fieldbench · ${tPhase}`), themeControl()),
+      H("h1", {}, h1),
+      H("p", { class: "standfirst" }, `Real handheld workloads (barcode reading and OCR on 4 MP camera frames, plus the bare networks) timed stage by stage on the Jetson, with whole-board energy and exact ground truth, next to the published figures of the Qualcomm QCS6490 NPU and the Zebra TC53 handheld built on it.`),
+      H("div", { class: "meta" },
+        H("span", {}, H("b", {}, DATA.board_short || DATA.board || "Jetson")),
+        DATA.jetpack ? H("span", {}, `JetPack ${DATA.jetpack}`) : null,
+        DATA.l4t ? H("span", {}, `L4T R${DATA.l4t}`) : null,
+        H("span", {}, `${DATA.appendix.models.length + DATA.appendix.pipelines.length} configurations`),
+        H("span", {}, `Generated ${DATA.generated}`))),
+    tiles.length ? H("section", { class: "kpis", "aria-label": "Headline numbers" }, tiles) : null,
+    H("nav", { class: "story", "aria-label": "The story in short" }, H("h2", {}, "The story in short"),
+      H("ol", {}, built.map((c) => H("li", {}, H("a", { href: `#${c.id}` }, c.title))))),
+    H("div", { class: "key", "aria-label": "Color key used in every chart" },
+      H("span", {}, H("i", { class: "sw accent" }), "Jetson: the result each chart is about"),
+      H("span", {}, H("i", { class: "sw context" }), "Other Jetson configurations"),
+      H("span", {}, H("i", { class: "sw ref" }), "Handheld’s published figure"),
+      H("span", {}, H("i", { class: "sw cost" }), "The cost: CPU-bound stages, lost accuracy, DVFS tax")),
+  ]);
+  built.forEach((c, i) => {
+    add(app, H("section", { class: "chapter", id: c.id, "aria-labelledby": `${c.id}-h` },
+      H("div", { class: "num" }, String(i + 1).padStart(2, "0")),
+      H("h2", { id: `${c.id}-h` }, c.title),
+      H("p", { class: "lede", html: c.lede }),
+      H("div", { class: `figs ${c.layout}` }, c.figs),
+      c.after ? H("p", { class: "after" }, c.after) : null,
+      c.sources ? H("p", { class: "source" }, sourcesLine(c.sources)) : null));
+  });
+  add(app, renderAppendix());
+  add(app, H("footer", {},
+    H("span", {}, H("b", {}, "fieldbench"), ", Siddhartha Boppana"),
+    H("span", {}, `Generated ${DATA.generated}`),
+    H("span", {}, [DATA.board, DATA.jetpack ? `JetPack ${DATA.jetpack}` : null, DATA.l4t ? `L4T R${DATA.l4t}` : null].filter(Boolean).join(" · "))));
+
+  if (location.hash === "#appendix") { const d = document.querySelector("#appendix details"); if (d) { d.open = true; d.scrollIntoView(); } }
+  drawAll(true);
+  const ro = new ResizeObserver(() => drawAll(false));
+
+  FIGS.forEach((f) => ro.observe(f.plot));
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => drawAll(true));
+  addEventListener("beforeprint", () => document.querySelectorAll("details").forEach((d) => { d.dataset.wasOpen = d.open; d.open = true; }));
+}
+main();
+</script>
+</body>
+</html>
