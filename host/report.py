@@ -11,12 +11,13 @@ Row selection
 -------------
 * Rows labelled "smoke" are skipped, and so is anything outside the top level of
   results/ (results/superseded/ is not globbed).
-* Pipelines "assistant" and "product" belong to Phase 3 and are skipped for now
-  (PHASE3_PIPELINES).
+* Phase 3 pipelines ("assistant", "product", PHASE3_PIPELINES) and rows measured on
+  the BarBeR real-photo set (data "data/barber/...") only feed their own chapters;
+  the Phase 1-2 chapters see neither (phase2_rows()).
 * Appendix ("All measurements"): when the same configuration appears more than
   once, the most recent row wins. The configuration key is model_key() /
   pipeline_key() below (pipeline, mode, size, precision, calibrator, jpeg, prep,
-  workers, power mode, locked clocks).
+  workers, power mode, locked clocks, data set).
 * Chapters: with the default DVFS governors the same configuration moves 10-25%
   between sessions (docs/results-phase2.md, section 10), so each chapter compares
   rows from named sessions (run labels), the same sessions docs/results-phase*.md
@@ -28,7 +29,9 @@ Row selection
 Adding a chapter (e.g. Phase 3)
 -------------------------------
 1. Write `chapter_<name>(rows)` here returning a JSON-able dict (or None to hide the
-   chapter) and append `("<name>", chapter_<name>)` to CHAPTERS.
+   chapter) and append `("<name>", chapter_<name>, scope)` to CHAPTERS, where scope
+   filters the rows it sees (phase2_rows, or None for all rows).
+
 2. In report_template.html, write `function renderName(data) { ... }` returning a
    chapter element (see renderOverlap for the pattern: chapter(), figure(), and one
    of the chart helpers) and append `{key: "<name>", render: renderName}` to
@@ -78,8 +81,6 @@ def read_rows(paths):
             if r.get("label") == "smoke":
                 continue
             if r.get("kind") == "pipeline":
-                if r.get("pipeline") in PHASE3_PIPELINES:
-                    continue
                 # Normalize switches that older rows omit or store as null.
                 r["jpeg"] = r.get("jpeg") or "cpu"
                 r["prep"] = r.get("prep") or "cpu"
@@ -95,6 +96,15 @@ def is_pipe(r):
     return r.get("kind") == "pipeline"
 
 
+def is_barber(r):
+    """Rows measured on the BarBeR real-photo set; they feed only the real-photo chapter."""
+    return (r.get("data") or "").startswith("data/barber")
+
+
+def data_set(r):
+    return "barber" if is_barber(r) else "synthetic"
+
+
 def locked(r):
     return bool(r["device"].get("clocks_locked"))
 
@@ -105,7 +115,7 @@ def model_key(r):
 
 def pipeline_key(r):
     return (r["pipeline"], r["mode"], r.get("input_size"), r.get("precision"), r.get("calibrator"),
-            r["jpeg"], r["prep"], r["workers"], r["device"].get("power_mode"), locked(r))
+            r["jpeg"], r["prep"], r["workers"], r["device"].get("power_mode"), locked(r), data_set(r))
 
 
 def latest(rows):
@@ -187,6 +197,8 @@ def slim_pipe(r, stages=False):
         "tj_max": load.get("temp_tj_max"), "throttle": r.get("throttle_events"),
         # Barcode: share of ground-truth barcodes decoded. OCR: share of lines read exactly.
         "accuracy": acc.get("decode_rate", acc.get("line_exact")),
+        "misreads": acc.get("misreads"), "scored": acc.get("barcodes", acc.get("lines")),
+        "data_set": data_set(r), "frames": r.get("frames_in_set"), "detect_recall": acc.get("detect_recall"),
         "boxes_per_frame": acc.get("boxes_per_frame", acc.get("lines_per_frame_pred")),
         "ref": pipeline_ref(r),
         "label": r.get("label"), "timestamp": r["timestamp"],
@@ -316,15 +328,137 @@ def chapter_overlap(rows):
     return {"series": series, "sources": sources} if series else None
 
 
+def chapter_power_pipes(rows):
+    """Pipelines across power modes (run label power-pipelines): barcode 640 and OCR 1280 FP16, NVJPG + GPU
+    prep, workers 1, at each live-switchable mode. Compared within that session only."""
+    pool = [r for r in latest([r for r in rows if r.get("label") == "power-pipelines"])
+            if is_pipe(r) and r["workers"] == 1 and not locked(r)]
+    series = []
+    for pipe, size in sorted({(r["pipeline"], r.get("input_size")) for r in pool}, key=lambda x: (x[0] != "barcode", x[1])):
+        pts = sorted((slim_pipe(r) for r in pool if r["pipeline"] == pipe and r.get("input_size") == size),
+                     key=lambda p: budget_rank(p["power_mode"] or ""))
+        if len(pts) > 1:
+            series.append({"pipeline": pipe, "size": size, "points": pts})
+    return {"series": series, "sources": ["power-pipelines"]} if series else None
+
+
+# BarBeR real-photo check. The ground-truth-crop ceiling is a host measurement (zxing-cpp on each
+# barcode's deskewed ground-truth crop, CPU), made when the subset was prepared (host/make_barber.py);
+# it is not part of the Jetson rows, so it is carried here and printed as "(host)".
+BARBER = {"citation": "Vezzali, Bolelli, Santi, Grana, “BarBeR: A Barcode Benchmarking Repository”, ICPR 2024",
+          "url": "https://ditto.ing.unimore.it/barber/", "total_photos": 8748, "gt_crop_ceiling_host": 0.725}
+
+
+def _jpeg_size(path):
+    """(width, height) from a JPEG's SOF marker, without an image library."""
+    with open(path, "rb") as f:
+        d = f.read(1 << 18)
+    i = 2
+    while i + 9 < len(d):
+        if d[i] != 0xFF:
+            i += 1
+            continue
+        m, ln = d[i + 1], int.from_bytes(d[i + 2:i + 4], "big")
+        if m in (0xC0, 0xC1, 0xC2):
+            return int.from_bytes(d[i + 7:i + 9], "big"), int.from_bytes(d[i + 5:i + 7], "big")
+        i += 2 + ln
+    return None
+
+
+def chapter_barber(rows):
+    """Real-photo check on a BarBeR subset (run label barber): whole-frame zxing and the synthetic-trained
+    detector at 640/1280/1600 x FP16/INT8, CPU decode and prep. Accuracy only: photo sizes vary widely,
+    so the latency of these rows is not compared with the TC53."""
+    pool = [r for r in latest([r for r in rows if is_barber(r) and is_pipe(r)]) if r["workers"] == 1]
+    if not pool:
+        return None
+    out = {"rows": sort_pipes(slim_pipe(r) for r in pool), "sources": sorted({r.get("label") for r in pool}), **BARBER}
+    gt = ROOT / (pool[0].get("data") or "") / "gt.jsonl"
+    if gt.exists():
+        frames = [json.loads(x) for x in gt.read_text().splitlines() if x.strip()]
+        out["datasets"] = len({f.get("source") for f in frames})
+        mp = [s[0] * s[1] / 1e6 for f in frames if (s := _jpeg_size(gt.parent / f["image"]))]
+        if mp:
+            out["mp_range"] = [min(mp), max(mp)]
+        mods = sorted(b["module_px"] for f in frames for b in f["barcodes"] if b.get("module_px", -1) > 0)
+        if mods:
+            out["module_px_median"] = mods[len(mods) // 2]
+            out["module_lt2"] = sum(m < 2 for m in mods) / len(mods)
+
+    return out
+
+
+def chapter_assistant(rows):
+    """Phase 3: barcode + OCR on every frame (pipeline assistant; docs/results-phase3.md section 1)."""
+    pool = [r for r in latest([r for r in rows if r.get("pipeline") == "assistant" and r.get("label") != "soak"])
+            if not locked(r)]
+    out = []
+    for r in pool:
+        p = slim_pipe(r)
+        sm, acc = r["stage_ms"], r.get("accuracy") or {}
+        p.update(order=r["mode"], total_mean=r["total_ms"]["mean"],
+                 bc_branch=sm.get("barcode", {}).get("mean"), ocr_branch=sm.get("ocr", {}).get("mean"),
+                 bc_gpu=sm.get("bc.infer_gpu", {}).get("mean"), line_exact=acc.get("line_exact"),
+                 decode_rate=acc.get("decode_rate"),
+                 ref_ms=sum(x["latency_ms"] for x in (MODELS[f"barcode_yolo11n_{r.get('input_size')}"]["pipeline_references"]
+                                                      + MODELS[f"ppocr5_det_{r.get('ocr_input_size')}"]["pipeline_references"])),
+                 ocr_size=r.get("ocr_input_size"))
+        out.append(p)
+    out.sort(key=lambda p: (p["workers"], p["order"] != "sequential"))
+    return {"rows": out, "sources": sorted({p["label"] for p in out})} if out else None
+
+
+def chapter_product(rows):
+    """Phase 3: product recognition (pipeline product; docs/results-phase3.md section 2)."""
+    pool = [r for r in latest([r for r in rows if r.get("pipeline") == "product"]) if not locked(r)]
+    if not pool:
+        return None
+    out = []
+    for r in sorted(pool, key=lambda r: r["workers"]):
+        p = slim_pipe(r)
+        acc, sm = r.get("accuracy") or {}, r["stage_ms"]
+        p.update(top1=acc.get("top1"), top5=acc.get("top5"), top1_coarse=acc.get("top1_coarse"), images=acc.get("images"),
+                 infer_gpu=sm.get("infer_gpu", {}).get("mean"), mj_dynamic=r["energy"].get("mj_per_frame_dynamic"),
+                 stage_means={k: sm[k]["mean"] for k in r["stages"] if k in sm})
+        out.append(p)
+    return {"rows": out, "npu_ref": best_npu_ref("mobilenetv3l"), "sources": sorted({p["label"] for p in out})}
+
+
+def chapter_soak(rows):
+    """Phase 3: sustained load. Renders the per-interval series of the latest 'soak' row; without one, the page
+    prints the documented status of the soak run instead (docs/results-phase3.md section 3)."""
+    soak = [r for r in rows if r.get("label") == "soak" and r.get("series")]
+    if not soak:
+        return {"missing": True, "doc": "docs/results-phase3.md#3-sustained-load-thermal-soak"}
+    r = max(soak, key=lambda r: r["timestamp"])
+    p = slim_pipe(r)
+    # Only full windows: the last one often covers just the moments after the timed loop ended.
+    step = r.get("series_s") or 30
+    full = [w for w in r["series"] if w.get("t_s") is None or w["t_s"] + step <= (r.get("wall_s") or 0) + 0.5]
+    p.update(order=r.get("mode"), series=full, wall_s=r.get("wall_s"))
+    return {"row": p, "sources": [r.get("label")]}
+
+
+def phase2_rows(rows):
+    """Phase 1-2 rows: synthetic test sets, barcode and OCR pipelines (plus model rows)."""
+    return [r for r in rows if not is_barber(r) and r.get("pipeline") not in PHASE3_PIPELINES]
+
+
 # Render order is set by the template's CHAPTERS list; this list only decides which payload keys exist.
+# The third element says which rows a chapter sees.
 CHAPTERS = [
-    ("models", chapter_models),
-    ("power", chapter_power),
-    ("stages", chapter_stages),
-    ("gpuprep", chapter_gpuprep),
-    ("accuracy", chapter_accuracy),
-    ("dvfs", chapter_dvfs),
-    ("overlap", chapter_overlap),
+    ("models", chapter_models, phase2_rows),
+    ("power", chapter_power, phase2_rows),
+    ("stages", chapter_stages, phase2_rows),
+    ("gpuprep", chapter_gpuprep, phase2_rows),
+    ("accuracy", chapter_accuracy, phase2_rows),
+    ("barber", chapter_barber, None),
+    ("dvfs", chapter_dvfs, phase2_rows),
+    ("powerpipes", chapter_power_pipes, phase2_rows),
+    ("overlap", chapter_overlap, phase2_rows),
+    ("assistant", chapter_assistant, None),
+    ("product", chapter_product, None),
+    ("soak", chapter_soak, None),
 ]
 
 
@@ -351,8 +485,8 @@ def build_payload(rows):
         **board_facts(rows),
         "appendix": {"models": models, "pipelines": sort_pipes(slim_pipe(r) for r in newest if is_pipe(r))},
     }
-    for key, fn in CHAPTERS:
-        payload[key] = fn(rows)
+    for key, fn, scope in CHAPTERS:
+        payload[key] = fn(scope(rows) if scope else rows)
     return payload
 
 
@@ -374,7 +508,7 @@ def main():
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html)
-    shown = [k for k, _ in CHAPTERS if payload.get(k)]
+    shown = [k for k, *_ in CHAPTERS if payload.get(k)]
     print(f"{len(payload['appendix']['models'])} model and {len(payload['appendix']['pipelines'])} pipeline"
           f" configurations from {len(files)} file(s); chapters: {', '.join(shown)} -> {out}")
 

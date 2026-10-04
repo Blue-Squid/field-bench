@@ -60,7 +60,7 @@ def _series(ends, lat, samples, t0, t1, step):
     """Per-window throughput, latency and telemetry over the timed loop (for soak runs)."""
     out = []
     k = 0
-    while t0 + k * step < t1:
+    while t0 + k * step < t1 - step / 2:  # skip a trailing partial window shorter than half a step
         a, b = t0 + k * step, min(t0 + (k + 1) * step, t1)
         win = [ms for e, ms in zip(ends, lat) if a <= e < b]
         tel = summarize([s for s in samples if a <= s["t"] < b])

@@ -5,7 +5,7 @@ ARGS       ?=
 CMD        ?= bench
 SESSION    ?= fieldbench
 
-.PHONY: export barcodes ocr-data barber train-barcode sync bench live attach info modes set-mode pull report
+.PHONY: export barcodes ocr-data barber products train-barcode sync bench live attach info modes set-mode pull report
 
 export:            ## export ONNX models on the host
 	.venv/bin/python host/export_models.py
@@ -19,6 +19,9 @@ ocr-data:          ## generate the synthetic OCR test + calibration frames
 barber:            ## BarBeR real photos (download first, see host/make_barber.py) -> data/barber/fieldbench
 	.venv/bin/python host/make_barber.py
 
+products:          ## Grocery Store Dataset -> data/products/{gallery,test} (product recognition)
+	.venv/bin/python host/make_products.py
+
 train-barcode:     ## fine-tune YOLO11n on it (CUDA), then export at 640/1280/1600
 	.venv/bin/python host/train_barcode.py
 	.venv/bin/python host/export_models.py barcode_yolo11n_640 barcode_yolo11n_1280 barcode_yolo11n_1600 --force
@@ -30,6 +33,7 @@ sync:              ## push code, ONNX and pipeline test/calibration images to th
 	  rsync -az --mkpath --relative data/barcodes/./test data/barcodes/./val/images $(JETSON):$(REMOTE_DIR)/data/barcodes/; fi
 	@if [ -d data/ocr/test ]; then rsync -az --mkpath data/ocr/test data/ocr/calib $(JETSON):$(REMOTE_DIR)/data/ocr/; fi
 	@if [ -d data/barber/fieldbench ]; then rsync -az --mkpath data/barber/fieldbench $(JETSON):$(REMOTE_DIR)/data/barber/; fi
+	@if [ -d data/products/test ]; then rsync -az --mkpath data/products/test data/products/gallery $(JETSON):$(REMOTE_DIR)/data/products/; fi
 
 info: sync
 	ssh $(JETSON) 'cd $(REMOTE_DIR) && .venv/bin/python -m fieldbench info'

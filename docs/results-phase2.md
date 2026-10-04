@@ -220,15 +220,15 @@ What this means for a handheld: a scanner that processes a camera stream (contin
 
 | Configuration | Barcodes read | Detection recall | Boxes per photo | QR read | EAN-13 read |
 |---|---|---|---|---|---|
-| Ground-truth crops + zxing (ceiling, host) | 71.2% | – | – | 82% | 80% |
+| Ground-truth crops + zxing (ceiling, host) | 72.5% | – | – | 85% | 80% |
 | **zxing-cpp, whole photo** | **70.4%** | – | – | 85% | 78% |
 | Detector 640 px, FP16 | 60.4% | 83.3% | 1.00 | 50% | 70% |
 | Detector 640 px, INT8 | 60.2% | 82.4% | 0.97 | 53% | 69% |
 | Detector 1280 px, FP16 | 45.7% | 69.0% | 0.97 | 16% | 54% |
 | Detector 1600 px, FP16 | 39.3% | 60.8% | 0.85 | 17% | 44% |
 
-- **The ceiling is low because the photos are hard.** Decoding each annotated barcode from its own upright crop reads only 71.2%. Many codes have 1.1–1.5 px modules (Deal Kaist, ParcelBar) or are blurred. Whole-photo zxing is already within a point of that ceiling, because most of these photos are framed around a single code, which is the case zxing's row scanner was built for.
+- **The ceiling is low because the photos are hard.** Decoding each annotated barcode from its own upright crop reads only 72.5%. Many codes have 1.1–1.5 px modules (Deal Kaist, ParcelBar) or are blurred. Whole-photo zxing is already within about two points of that ceiling, because most of these photos are framed around a single code, which is the case zxing's row scanner was built for.
 - **The detector misses real codes the synthetic set never showed it.** At 640 px it finds 83% of barcodes, against 100% on the synthetic test set. Larger input sizes make it worse (recall 83% → 61%), the opposite of the synthetic results. The training scenes were 4 MP frames with small labels, while many BarBeR photos are close-ups in which one code fills the frame. Upscaling such a photo to 1280–1600 px makes the code far larger than anything in training. QR codes, usually photographed close, drop from 50% to 16–17%.
 - **INT8 costs nothing extra here** (60.2% vs 60.4% at 640 px), consistent with the synthetic results (section 6).
-- **What fixes it:** fine-tune the detector on real images (BarBeR's own training split, plus close-up and low-resolution synthetic scenes), and pick the detector input size from the photo size instead of always upscaling. A product pipeline would also fall back to whole-frame zxing when the detector finds nothing. The timing of these rows isn't compared with the TC53, because photo sizes vary by more than 20×.
+- **What fixes it:** fine-tune the detector on real images (BarBeR's own training split, plus close-up and low-resolution synthetic scenes), and pick the detector input size from the photo size instead of always upscaling. A production pipeline would also fall back to whole-frame zxing when the detector finds nothing. The timing of these rows isn't compared with the TC53, because photo sizes vary by more than 20×.
 

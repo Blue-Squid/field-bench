@@ -78,7 +78,11 @@
     color: var(--ink);
     font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
-  main { max-width: 1080px; margin: 0 auto; padding: 28px 16px 48px; }
+  /* Layout: one column. Every block (title, text, cards, charts, tables) spans its full width,
+     so all left and right edges line up; vertical rhythm uses one spacing scale. */
+  :root { --col: 1000px; --gut: 16px; --pad: 20px; --s1: 8px; --s2: 16px; --s3: 24px; --s4: 40px; --s5: 64px; }
+  main { max-width: calc(var(--col) + 2 * var(--gut)); margin: 0 auto; padding: var(--s4) var(--gut) var(--s5); }
+  main p, main h1, main h2, main li { text-wrap: pretty; }
   a { color: var(--link); text-underline-offset: 2px; }
   a:focus-visible, button:focus-visible, summary:focus-visible, [tabindex]:focus-visible {
     outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px;
@@ -92,14 +96,14 @@
     font: inherit; font-size: 12px; color: var(--ink-2); background: none; border: 0; padding: 4px 10px; cursor: pointer;
   }
   .theme button[aria-pressed="true"] { background: var(--chip); color: var(--ink); font-weight: 600; }
-  h1 { font-size: clamp(26px, 3.6vw, 38px); line-height: 1.18; letter-spacing: -0.015em; font-weight: 650; margin: 14px 0 12px; max-width: 920px; text-wrap: balance; }
-  .standfirst { font-size: 17px; color: var(--ink-2); max-width: 70ch; margin: 0; }
-  .meta { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 12px; font-size: 13px; color: var(--ink-2); }
+  h1 { font-size: clamp(26px, 3.6vw, 38px); line-height: 1.18; letter-spacing: -0.015em; font-weight: 650; margin: var(--s2) 0 var(--s2); }
+  .standfirst { font-size: 17px; color: var(--ink-2); margin: 0; }
+  .meta { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: var(--s2); font-size: 13px; color: var(--ink-2); }
   .meta b { color: var(--ink); font-weight: 600; }
 
   /* KPI strip */
-  .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 26px; }
-  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px 15px; min-width: 0; }
+  .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s2); margin-top: var(--s3); }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: var(--pad); min-width: 0; }
   .kpi .v { font-size: 36px; font-weight: 650; line-height: 1.1; letter-spacing: -0.02em; }
   .kpi .v small { font-size: 17px; font-weight: 550; color: var(--ink-2); margin-left: 3px; letter-spacing: 0; }
   .kpi .l { font-size: 14px; font-weight: 600; margin-top: 6px; line-height: 1.35; }
@@ -111,17 +115,24 @@
   @media (max-width: 420px) { .kpi .v { font-size: 30px; } .kpi { padding: 14px; } }
 
   /* the story in one list */
-  .story { margin-top: 26px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px 8px; }
+  .story { margin-top: var(--s2); background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: var(--pad) var(--pad) var(--s1); }
   .story h2 { font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 8px; }
   .story ol { margin: 0; padding: 0; list-style: none; counter-reset: s; }
   .story li { counter-increment: s; display: grid; grid-template-columns: 30px 1fr; gap: 4px; padding: 7px 0; border-top: 1px solid var(--grid); }
   .story li:first-child { border-top: 0; }
+  .story li.ph { display: block; counter-increment: none; border-top: 0; padding: 12px 0 2px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); }
+  .story li.ph:first-child { padding-top: 0; }
+  .story li.ph::before { content: none; }
+  .phase-div { margin-top: var(--s5); padding-top: 14px; border-top: 2px solid var(--ink); display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+  .phase-div span { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+  .phase-div b { font-size: 15px; font-weight: 500; color: var(--ink-2); }
+  .phase-div + .chapter { margin-top: var(--s3); }
   .story li::before { content: counter(s, decimal-leading-zero); font-size: 13px; font-weight: 600; color: var(--muted); padding-top: 2px; font-variant-numeric: tabular-nums; }
   .story a { color: var(--ink); text-decoration: none; }
   .story a:hover { text-decoration: underline; }
 
   /* color key */
-  .key { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 18px 2px 0; font-size: 13px; color: var(--ink-2); }
+  .key { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: var(--s2) 0 0; font-size: 13px; color: var(--ink-2); }
   .key span { display: inline-flex; align-items: center; gap: 7px; }
   .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; flex: none; }
   .sw.accent { background: var(--accent); }
@@ -132,25 +143,25 @@
   .sw.dot { border-radius: 50%; }
 
   /* chapters */
-  .chapter { margin-top: 56px; scroll-margin-top: 16px; }
+  .chapter { margin-top: var(--s5); scroll-margin-top: var(--s2); }
   .chapter .num { font-size: 13px; font-weight: 600; color: var(--ink-2);
  letter-spacing: 0.06em; font-variant-numeric: tabular-nums; }
-  .chapter h2 { font-size: clamp(21px, 2.4vw, 26px); line-height: 1.25; font-weight: 650; letter-spacing: -0.01em; margin: 4px 0 10px; max-width: 860px; text-wrap: balance; }
-  .chapter .lede { color: var(--ink-2); margin: 0 0 18px; max-width: 72ch; }
+  .chapter h2 { font-size: clamp(21px, 2.4vw, 26px); line-height: 1.25; font-weight: 650; letter-spacing: -0.01em; margin: var(--s1) 0 var(--s2); }
+  .chapter .lede { color: var(--ink-2); margin: 0 0 var(--s3); }
   .chapter .lede b { color: var(--ink); font-weight: 600; }
-  .figs { display: grid; gap: 14px; }
+  .figs { display: grid; gap: var(--s2); }
   .figs.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .figs.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   @media (max-width: 860px) { .figs.two, .figs.three { grid-template-columns: minmax(0, 1fr); } }
-  figure { margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px 12px; min-width: 0; }
+  figure { margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: var(--pad); min-width: 0; }
   figcaption .ft { font-size: 15px; font-weight: 600; line-height: 1.35; }
   figcaption .fs { font-size: 13px; color: var(--ink-2); margin-top: 2px; line-height: 1.4; }
   .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; color: var(--ink-2); margin-top: 10px; }
   .legend span { display: inline-flex; align-items: center; gap: 6px; }
   .plot { position: relative; margin-top: 12px; min-height: 40px; }
   .plot svg { display: block; overflow: visible; }
-  .after { font-size: 13px; color: var(--ink-2); margin: 12px 2px 0; max-width: 80ch; }
-  .source { font-size: 12px; color: var(--ink-2); margin: 10px 2px 0; }
+  .after { font-size: 13px; color: var(--ink-2); margin: var(--s2) 0 0; }
+  .source { font-size: 12px; color: var(--ink-2); margin: var(--s1) 0 0; }
 
   /* svg text and marks */
   svg text { fill: var(--ink-2); font-size: 12px; font-family: inherit; }
@@ -194,12 +205,12 @@
   #tip .r span:first-child { color: var(--ink-2); }
 
   /* appendix */
-  .appendix { margin-top: 64px; }
-  .appendix h2 { font-size: 22px; font-weight: 650; margin: 0 0 6px; }
-  details { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; margin-top: 12px; }
-  summary { cursor: pointer; padding: 14px 18px; font-weight: 600; list-style-position: inside; }
+  .appendix { margin-top: var(--s5); }
+  .appendix h2 { font-size: clamp(21px, 2.4vw, 26px); font-weight: 650; margin: 0 0 var(--s2); }
+  details { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; margin-top: var(--s2); }
+  summary { cursor: pointer; padding: var(--s2) var(--pad); font-weight: 600; list-style-position: inside; }
   summary .cnt { font-weight: 400; color: var(--ink-2); font-size: 14px; margin-left: 6px; }
-  details > .inner { padding: 0 18px 16px; }
+  details > .inner { padding: 0 var(--pad) var(--pad); }
   .table-wrap { overflow-x: auto; border-top: 1px solid var(--grid); }
   table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
   caption { text-align: left; font-weight: 600; padding: 14px 0 8px; }
@@ -211,19 +222,22 @@
   td.t, th.t { text-align: left; }
   tbody tr:hover { background: var(--wash); }
   .chip { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 4px; background: var(--chip); color: var(--ink-2); }
-  ul.caveats { margin: 0; padding: 0 0 0 18px; color: var(--ink-2); max-width: 80ch; }
+  ul.caveats { margin: 0; padding: 0 0 0 18px; color: var(--ink-2); }
   ul.caveats li + li { margin-top: 6px; }
   ul.caveats b { color: var(--ink); font-weight: 600; }
 
-  footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--grid); font-size: 13px; color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 4px 18px; }
+  footer { margin-top: var(--s5); padding-top: var(--s2); border-top: 1px solid var(--grid); font-size: 13px; color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 4px 18px; }
   footer b { color: var(--ink); font-weight: 600; }
 
+  @page { size: A4; margin: 16mm 15mm 18mm; }
   @media print {
-    :root { color-scheme: light; }
-    body { background: #fff; }
+    :root { color-scheme: light; --s5: 32px; --s4: 24px; }
+    body { background: #fff; font-size: 14px; }
+    main { max-width: none; padding: 0; }
     .theme, #tip { display: none !important; }
-    figure, .kpi, .story li { break-inside: avoid; }
-    .chapter { break-before: auto; margin-top: 32px; }
+    figure, .kpi, .story, .story li, .phase-div { break-inside: avoid; }
+    .chapter h2, .chapter .lede, .chapter .num { break-after: avoid; }
+    .phase-div, .appendix { break-before: page; margin-top: 0; }
     a { color: inherit; }
   }
   @media (forced-colors: active) {
@@ -276,6 +290,8 @@ const pipeName = (p) => p === "ocr" ? "OCR" : p === "barcode" ? "Barcode" : p;
 const pctDrop = (from, to) => { const f = Math.round(from * 10) / 10, t = Math.round(to * 10) / 10; return (f - t) / f; };
 const range = (vals, f) => { const lo = Math.min(...vals), hi = Math.max(...vals); return r1(f(lo), 0) === r1(f(hi), 0) ? `${r1(f(lo), 0)}` : `${r1(f(lo), 0)}–${r1(f(hi), 0)}`; };
 const plural = (n, one, many) => n === 1 ? one : many;
+const PREC = ["fp32", "fp16", "int8"];
+
 /* "a" or "an" before a number as spoken: an 8, an 11, an 18, an 80 */
 const art = (num) => /^(8|11|18|8\d)(\D|$)/.test(String(num)) || /^8\d\d(\D|$)/.test(String(num)) ? "an" : "a";
 
@@ -893,9 +909,11 @@ function renderOverlap(d) {
   const others = series.filter((s) => s !== best);
   const nW = best.points[best.points.length - 1].workers;
   const latTxt = (v) => v <= 0.02 ? (v < -0.02 ? `while p50 falls ${fmtPct(-v)}` : "at no latency cost") : `at +${fmtPct(v)} p50`;
-  const otherBest = others.length ? Math.max(...others.map(mult)) : null;
+  // sweet spot: the last worker count whose successor still adds at least 15% throughput
+  const sweet = (s) => { let i = 0; while (i + 1 < s.points.length && s.points[i + 1].fps / s.points[i].fps >= 1.15) i++; return s.points[i]; };
+  const o = others[0], os = o ? sweet(o) : null;
   const title = `Overlapping frames multiplies ${pipeName(best.pipeline).toLowerCase()} throughput ${fmtX(mult(best), 1)} with ${nW} workers ${latTxt(lat(best))}`
-    + (others.length ? `; ${pipeName(others[0].pipeline)} gains less (up to ${fmtX(otherBest, 1)}) and pays in latency` : "");
+    + (o ? `; ${pipeName(o.pipeline)} saturates the GPU, and ${os.workers} workers is its sweet spot (${fmtX(os.fps / o.points[0].fps, 1)} for +${fmtPct(os.p50 / o.points[0].p50 - 1)} latency at ${o.size} px)` : "");
   const lede = `Several copies of the pipeline run as threads on consecutive frames, so one frame’s CPU stages overlap another’s GPU work. This keeps the units busy and lets the governors raise clocks without root: ${pipeName(best.pipeline).toLowerCase()} ${best.size} px went from ${r1(best.points[0].gpu_mhz, 0)} to ${r1(best.points[best.points.length - 1].gpu_mhz, 0)} MHz average GPU clock, and energy per frame fell from ${fmtMj(best.points[0].mj)} to ${fmtMj(best.points[best.points.length - 1].mj)}. `
     + (others.length ? `OCR’s stages are longer and contend for the same GPU, so its per-frame latency grows with each worker.` : "");
   const figs = series.map((s) => {
@@ -907,7 +925,7 @@ function renderOverlap(d) {
       draw: (w) => columns(w, {
         dom: domMax * 1.08, height: 210, barW: 28,
         cols: s.points.map((p) => ({
-          value: p.fps / base, tone: p === last ? "accent" : "context",
+          value: p.fps / base, tone: p === sweet(s) ? "accent" : "context",
           cap: [{ t: fmtX(p.fps / base, 1), b: true }],
           under: [`${p.workers} worker${plural(p.workers, "", "s")}`, `${r1(p.fps, 1)} fps`, `p50 ${r1(p.p50, 0)} ms`],
           tip: tipAttr(`${pipeName(s.pipeline)} ${s.size} px, ${p.workers} worker${plural(p.workers, "", "s")}`, [["Throughput", `${r1(p.fps, 1)} fps`], ["p50 per frame", fmtMs(p.p50)], ["p90 per frame", fmtMs(p.p90)], ["Energy / frame", fmtMj(p.mj)], ["GPU clock (mean)", `${r1(p.gpu_mhz, 0)} MHz`]]),
@@ -916,20 +934,191 @@ function renderOverlap(d) {
     });
   });
   return { id: "overlap", title, lede, figs, layout: figs.length >= 3 ? "three" : figs.length === 2 ? "two" : "one",
-    after: `Throughput is frames completed per second across all workers; p50 (ms) is per-frame latency. Accuracy is unchanged: each worker runs the same pipeline on its own frames.`,
+    after: (() => {
+      const pts = series.flatMap((s) => s.points), hot = pts.filter((p) => p.throttle > 100);
+      return `Throughput is frames completed per second across all workers; p50 (ms) is per-frame latency; blue marks the last worker count that still adds 15% or more. Accuracy is unchanged: each worker runs the same pipeline on its own frames.`
+        + (hot.length ? ` ${hot.length} of these runs, at ${r1(Math.min(...hot.map((p) => p.watts)), 1)}–${r1(Math.max(...hot.map((p) => p.watts)), 1)} W board power, logged hundreds to thousands of over-current alarms (up to ${Math.max(...hot.map((p) => p.throttle)).toLocaleString("en-US")}): they run at the edge of the module’s power budget, so their throughput includes brief throttling.` : "");
+    })(),
     sources: d.sources, kpi: { best, mult: mult(best) } };
 }
 
-/* Add a chapter: append {key, render} here and the matching payload key in host/report.py. */
+function renderPowerPipes(d) {
+  const series = d.series;
+  if (!series.length) return null;
+  const nm = (s) => `${pipeName(s.pipeline)} ${s.size} px`;
+  const lo = series[0].points[0].power_mode, top = series[0].points[series[0].points.length - 1].power_mode;
+  const at = (s, m) => s.points.find((p) => p.power_mode === m);
+  const ratio = (p) => p.ref ? p.ref.ms / p.p50 : null;
+  const latSpread = (s) => { const v = s.points.map((p) => p.p50); return Math.max(...v) / Math.min(...v) - 1; };
+  const eSpread = Math.max(...series.map((s) => { const t = at(s, top); return Math.max(...s.points.map((p) => Math.abs(p.mj - t.mj) / t.mj)); }));
+  const beats = series.filter((s) => ratio(at(s, lo)) >= 1), flat = series.filter((s) => latSpread(s) < 0.1);
+  const parts = [];
+  if (beats.length) parts.push(`${beats.map(nm).join(" and ")} still beat${plural(beats.length, "s", "")} the TC53 at ${fmtMode(lo)} (${beats.map((s) => fmtX(ratio(at(s, lo)))).join(", ")})`);
+  if (flat.length) parts.push(`${flat.map((s) => parts.length ? nm(s).replace(/^Barcode/, "barcode") : nm(s)).join(" and ")} barely move${plural(flat.length, "s", "")} (${flat.map((s) => `±${fmtPct(latSpread(s) / 2)}`).join(", ")})`);
+  const title = `Unlike the bare networks, the pipelines barely notice the power mode: ${parts.join(", and ")}`;
+  const gpu = series.map((s) => `${nm(s)} ${s.points.map((p) => r1(p.gpu_mhz, 0)).join("/")} MHz`).join("; ");
+  const K2 = DATA.power && DATA.power.rows ? DATA.power.rows.find((r) => r.model === "yolo11n" && r.precision === "int8" && r.power_mode === lo) : null;
+  const lede = `The best single-frame configurations (NVJPG decode, GPU preprocessing, FP16) at ${series[0].points.map((p) => fmtMode(p.power_mode)).join(", ")}, measured in one session. `
+    + (K2 ? `Chapter 02’s bare YOLO11n drops to ${fmtX(K2.ref.ms / K2.p50)} of the NPU at ${fmtMode(lo)}; a pipeline loses far less, because under the default governors its GPU rarely runs near the mode’s clock cap anyway (mean GPU clock ${gpu}). ` : "")
+    + `Energy per frame stays within ±${fmtPct(eSpread)} of ${fmtMode(top)} in every mode.`;
+  const figs = series.map((s) => figure({
+    title: `${nm(s)}, ${s.points[0].precision.toUpperCase()}`, sub: "p50 per frame (ms) by power mode · ratio vs TC53 · energy per frame",
+    aria: `${nm(s)} p50 by power mode against the Zebra TC53`,
+    draw: (w) => hbar(w, {
+      unit: "ms", refLine: s.points[0].ref ? { value: s.points[0].ref.ms, label: `TC53 ${fmtRef(s.points[0].ref.ms)}` } : null,
+      rows: s.points.map((p) => ({
+        label: fmtMode(p.power_mode), value: p.p50, tone: p.power_mode === lo ? "accent" : "context",
+        spans: [{ t: fmtMs(p.p50), b: true }, { t: `  ${fmtX(ratio(p))} · ${r1(p.mj, 0)} mJ`, m: true }],
+        tip: tipAttr(`${nm(s)} · ${fmtMode(p.power_mode)}`, [["p50", fmtMs(p.p50)], ["vs TC53", fmtX(ratio(p))], ["Energy / frame", fmtMj(p.mj)], ["Board power", fmtW(p.watts)], ["GPU clock (mean)", `${r1(p.gpu_mhz, 0)} MHz`]]),
+      })),
+    }),
+  }));
+  return { id: "powerpipes", title, lede, figs, layout: figs.length > 1 ? "two" : "one",
+    after: "7 W needs a reboot to enter, so the pipeline sweep covers the live-switchable modes only.", sources: d.sources };
+}
+
+function renderBarber(d) {
+  const rows = d.rows, zx = rows.find((r) => r.mode === "zxing"), det = rows.filter((r) => r.mode === "detect");
+  if (!det.length) return null;
+  const bestDet = det.reduce((a, b) => b.accuracy > a.accuracy ? b : a);
+  const fp = det.filter((r) => r.precision === "fp16").sort((a, b) => a.size - b.size);
+  const small = fp[0], big = fp[fp.length - 1], ceil = d.gt_crop_ceiling_host;
+  const worse = big.accuracy < small.accuracy;
+  const title = zx && bestDet.accuracy < zx.accuracy
+    ? `On real photos the synthetic-trained detector falls behind: ${fmtPct(small.accuracy, 1)} read at ${small.size} px against ${fmtPct(zx.accuracy, 1)} for whole-frame zxing${worse ? `, and it gets worse at larger inputs (${fmtPct(big.accuracy, 1)} at ${big.size} px)` : ""}`
+    : `On real photos the detector reads ${fmtPct(bestDet.accuracy, 1)} of barcodes`;
+  const lede = `A check outside the synthetic set: ${d.datasets ? `${d.frames || small.frames} photos with ${small.scored} scorable barcodes, sampled evenly from the ${d.datasets} public datasets that BarBeR pools` : `${small.scored} barcodes`}. `
+    + `Even zxing on each barcode’s deskewed ground-truth crop reads only ${fmtPct(ceil, 1)} (host)${d.module_lt2 != null ? `, because ${fmtPct(d.module_lt2)} of these codes have modules under 2 px` : ""}. Whole-frame zxing gets close to that ceiling; the detector does not: its recall falls from ${fmtPct(small.detect_recall)} at ${small.size} px to ${fmtPct(big.detect_recall)} at ${big.size} px. `
+    + `<b>This is a domain gap.</b> The detector was trained only on synthetic 4 MP scenes, while real photos are often small or close-up; fine-tuning on real images is the fix, and until then these numbers stand as a negative result.`;
+  const rowsOut = [];
+  if (zx) rowsOut.push({ header: "Whole frame, no detector" }, { label: "zxing-cpp", value: zx.accuracy * 100, tone: "context",
+    spans: [{ t: fmtPct(zx.accuracy, 1), b: true }], tip: tipAttr("Whole-frame zxing-cpp", [["Barcodes read", fmtPct(zx.accuracy, 1)], ["Misreads", String(zx.misreads)]]) });
+  for (const size of [...new Set(det.map((r) => r.size))].sort((a, b) => a - b)) {
+    rowsOut.push({ header: `Detector at ${size} px + deskewed crops` });
+    for (const r of det.filter((x) => x.size === size).sort((a, b) => PREC.indexOf(a.precision) - PREC.indexOf(b.precision))) {
+      rowsOut.push({ label: fmtPrec(r.precision, r.calibrator), value: r.accuracy * 100,
+        tone: zx && r.accuracy < zx.accuracy - 0.05 ? "cost" : "accent",
+        spans: [{ t: fmtPct(r.accuracy, 1), b: true }, { t: `  recall ${fmtPct(r.detect_recall)}`, m: true }],
+        tip: tipAttr(`Detector ${size} px ${fmtPrec(r.precision, r.calibrator)}`, [["Barcodes read", fmtPct(r.accuracy, 1)], ["Detection recall", fmtPct(r.detect_recall, 1)], ["Misreads", String(r.misreads)]]) });
+    }
+  }
+  const fig = figure({
+    title: "Barcodes read on real photos", sub: `Share of ${small.scored} ground-truth barcodes (%) · BarBeR subset, CPU decode and preprocessing`,
+    legend: [["context", "Whole-frame zxing"], ["accent", "Detector, within 5 points of zxing"], ["cost", "Detector, accuracy lost"], ["ref", "Ground-truth crops (ceiling, host)"]],
+    aria: "Barcode read rate on BarBeR real photos by configuration, with the ground-truth crop ceiling",
+    draw: (w) => hbar(w, { rows: rowsOut, max: 100, unit: "%", fmtTick: (v) => r1(v, 0), refLine: { value: ceil * 100, label: `Ceiling ${fmtPct(ceil, 1)}` } }),
+  });
+  return { id: "barber", title, lede, figs: [fig], layout: "one",
+    after: `Latency is left out here: the photos range from ${d.mp_range ? `${r1(d.mp_range[0], 2)} to ${r1(d.mp_range[1], 1)} MP` : "very small to very large"}, so per-frame times are not comparable with the 4 MP frames or the TC53 figures (they are in the appendix). Data: ${d.citation}; ${d.total_photos.toLocaleString("en-US")} photos in total.`,
+    sources: d.sources, kpi: { zx, small } };
+}
+
+function renderAssistant(d) {
+  const rows = d.rows;
+  if (!rows.length) return null;
+  const one = rows.filter((r) => r.workers === 1), best = one.reduce((a, b) => b.p50 < a.p50 ? b : a);
+  const seq = one.find((r) => r.order === "sequential"), con = one.find((r) => r.order === "concurrent");
+  const ref = best.ref_ms, ratio = (r) => ref / r.p50;
+  const two = rows.filter((r) => r.workers === 2), bestTput = rows.reduce((a, b) => b.fps > a.fps ? b : a);
+  const title = `Reading barcodes and text on every frame takes ${fmtMs(best.p50)}, ${fmtX(ratio(best))} faster than a TC53 doing the two jobs in turn`;
+  const extra = seq ? seq.bc_branch / (seq.total_mean - seq.bc_branch) : null;
+  const lede = `One JPEG decode, then the barcode branch (detector ${best.size} px) and the OCR branch (detector ${best.ocr_size} px) run one after the other or as two concurrent threads. The TC53 reference is Zebra’s two published times added up (${ref} ms). `
+    + (seq ? `Run in sequence, the barcode branch adds only <b>${fmtMs(seq.bc_branch)}</b> to a ${fmtMs(seq.ocr_branch)} OCR branch, about ${fmtPct(extra)} more per frame. ` : "")
+    + (seq && con ? `Running the branches concurrently saves ${r1(seq.p50 - con.p50, 0)} ms at p50, not the whole barcode branch: the barcode detector’s GPU time rises from ${fmtMs(seq.bc_gpu)} to ${fmtMs(con.bc_gpu)} as the two TensorRT contexts share the GPU. ` : "")
+    + (two.length ? `Two workers reach ${r1(bestTput.fps, 1)} frames/s.` : "");
+  const label = (r) => `${r.order === "concurrent" ? "Concurrent" : "Sequential"}, ${r.workers} worker${plural(r.workers, "", "s")}`;
+  const fig = figure({
+    title: "Barcode + OCR on the same frame", sub: "p50 per frame (ms) · ratio vs TC53 doing both · frames per second",
+    aria: "Barcode plus OCR per-frame latency by branch order and workers, against the TC53 sum",
+    draw: (w) => hbar(w, {
+      unit: "ms", refLine: { value: ref, label: `TC53, both in turn ${ref} ms` },
+      rows: rows.map((r) => ({ label: label(r), value: r.p50, tone: r === best ? "accent" : "context",
+        spans: [{ t: fmtMs(r.p50), b: true }, { t: `  ${r.workers === 1 ? `${fmtX(ratio(r))} · ` : ""}${r1(r.fps, 1)} fps`, m: true }],
+        tip: tipAttr(label(r), [["p50", fmtMs(r.p50)], ["p90", fmtMs(r.p90)], ["Frames/s", r1(r.fps, 1)], ["Barcode branch (mean)", fmtMs(r.bc_branch)], ["OCR branch (mean)", fmtMs(r.ocr_branch)], ["Energy / frame", fmtMj(r.mj)], ["Board power", fmtW(r.watts)]]) })),
+    }),
+  });
+  const sameAcc = rows.every((r) => Math.abs(r.decode_rate - rows[0].decode_rate) < 1e-9 && Math.abs(r.line_exact - rows[0].line_exact) < 1e-9);
+  return { id: "assistant", phase: 3, title, lede, figs: [fig], layout: "one",
+    after: `${sameAcc ? `Accuracy is the same in every row: ${fmtPct(rows[0].decode_rate, 1)} of barcodes read and ${fmtPct(rows[0].line_exact, 1)} of text lines exact (half-size subsets of the Phase 2 test sets). ` : ""}With two workers the ratio to the TC53 is left out: the TC53 figures are one frame at a time.`,
+    sources: d.sources };
+}
+
+function renderProduct(d) {
+  const rows = d.rows;
+  if (!rows.length) return null;
+  const one = rows[0], best = rows.reduce((a, b) => b.fps > a.fps ? b : a), npu = d.npu_ref;
+  const title = `Product recognition: ${fmtPct(one.top1, 0)} exact and ${fmtPct(one.top5, 1)} in the top 5, at ${fmtMs(one.p50)} per image and ${r1(best.fps, 0)} images/s with ${best.workers} workers`;
+  const lede = `A MobileNetV3-L embedding (ImageNet weights, no fine-tuning) matched against one centroid per product class, on ${one.images ? one.images.toLocaleString("en-US") : ""} in-store phone photos of groceries. `
+    + (npu ? `On a single image the handheld NPU is faster: the network takes ${fmtMs(one.infer_gpu)} of GPU time here, against the QCS6490’s ${fmtMs(npu.ms)} for the classifier version, because the GPU governor idles on this light, bursty load (mean ${r1(one.gpu_mhz, 0)} MHz). ` : "")
+    + `Overlapping images fixes throughput: ${best.workers} workers recognize ${fmtX(best.fps / one.fps, 1)} as many images per second at ${r1(best.mj, 0)} mJ each (${r1(one.mj, 0)} with one worker).`;
+  const domMax = Math.max(...rows.map((r) => r.fps));
+  const figA = figure({
+    title: "Throughput by workers", sub: "Images per second · p50 latency · whole-board energy per image",
+    aria: "Product recognition throughput by worker count",
+    draw: (w) => columns(w, { dom: domMax * 1.12, height: 210, barW: 28,
+      cols: rows.map((r) => ({ value: r.fps, tone: r === best ? "accent" : "context", cap: [{ t: `${r1(r.fps, 0)}/s`, b: true }],
+        under: [`${r.workers} worker${plural(r.workers, "", "s")}`, `p50 ${fmtMs(r.p50)}`, `${r1(r.mj, 0)} mJ`],
+        tip: tipAttr(`${r.workers} worker${plural(r.workers, "", "s")}`, [["Images/s", r1(r.fps, 1)], ["p50", fmtMs(r.p50)], ["p90", fmtMs(r.p90)], ["Energy / image", fmtMj(r.mj)], ["GPU clock (mean)", `${r1(r.gpu_mhz, 0)} MHz`]]) })) }),
+  });
+  const accRows = [["Top-1, coarse group", one.top1_coarse], ["Top-1, exact product", one.top1], ["Top-5, exact product", one.top5]].filter((x) => x[1] != null);
+  const figB = figure({
+    title: "Accuracy", sub: `Share of ${one.images ? one.images.toLocaleString("en-US") : ""} test images (%)`,
+    aria: "Product recognition accuracy",
+    draw: (w) => hbar(w, { max: 100, unit: "%", fmtTick: (v) => r1(v, 0),
+      rows: accRows.map(([l, v]) => ({ label: l, value: v * 100, tone: l.startsWith("Top-1, exact") ? "accent" : "context", spans: [{ t: fmtPct(v, 1), b: true }] })) }),
+  });
+  return { id: "product", phase: 3, title, lede, figs: [figA, figB], layout: "two",
+    after: "No shelf localizer yet: the test photos are centred on the product, as with a point-and-shoot trigger. Fine-tuning the embedding on the store’s own catalogue is the usual next step for accuracy.",
+    sources: d.sources };
+}
+
+function renderSoak(d) {
+  if (d.missing) {
+    return { id: "soak", phase: 3, title: "Sustained load: the 20-minute soak run has not completed yet", figs: [], layout: "one",
+      lede: `The first soak (barcode + OCR, concurrent branches, two workers, about 16 W) stopped making progress inside the timed loop and wrote no row; a re-run with CPU JPEG decode is pending. This chapter draws the per-interval series as soon as a row labelled “soak” exists. Details: <a href="../${esc(d.doc)}">Phase 3 results, section 3</a>.`,
+      sources: null };
+  }
+  const r = d.row, s = r.series;
+  const pick = (k) => s.map((p) => p[k] ?? null);
+  const tKey = ["t_s", "t", "elapsed_s", "time_s"].find((k) => s[0] && s[0][k] != null);
+  // Label whole 2-minute marks only, so ticks are even and never collide.
+  const secs = s.map((p, i) => (tKey ? p[tKey] : i * 30));
+  const cats = secs.map((t) => (t % 120 === 0 ? `${t / 60} min` : ""));
+  const fps = pick("fps"), p50 = pick("p50_ms"), tj = pick("temp_tj_max"), w = pick("p_VDD_IN_mean").map((v) => v == null ? null : v / 1000);
+  const first = (a) => a.find((v) => v != null), last = (a) => [...a].reverse().find((v) => v != null);
+  const drift = first(fps) && last(fps) ? last(fps) / first(fps) - 1 : null;
+  const title = `Under ${r1((r.wall_s || s.length * 30) / 60, 0)} minutes of sustained load, throughput ${drift == null ? "was recorded" : Math.abs(drift) < 0.05 ? `holds within ${fmtPct(Math.abs(drift))}` : `${drift < 0 ? "drops" : "rises"} ${fmtPct(Math.abs(drift))}`}${tj.some((v) => v != null) ? ` and the junction peaks at ${r1(Math.max(...tj.filter((v) => v != null)), 0)} °C` : ""}`;
+  const thin = (a) => a; // every interval is drawn; the x labels thin themselves below
+  const step = Math.max(1, Math.ceil(cats.length / 8));
+  const xl = cats.map((c, i) => i % step === 0 || i === cats.length - 1 ? c : "");
+  const mk = (title, sub, vals, end, fmt) => figure({ title, sub, aria: title,
+    draw: (wd) => lines(wd, { cats: xl, fmtTick: fmt, height: 220, series: [{ name: title, tone: "accent", vals: thin(vals), end: [{ t: end, b: true }] }] }) });
+  const figs = [mk("Throughput", "Frames per second, per 30 s interval", fps, `${r1(last(fps), 1)} fps`)];
+  if (p50.some((v) => v != null)) figs.push(mk("Latency", "p50 per frame (ms)", p50, `${r1(last(p50), 0)} ms`));
+  if (tj.some((v) => v != null)) figs.push(mk("Junction temperature", "Peak per interval (°C)", tj, `${r1(last(tj), 0)} °C`));
+  if (w.some((v) => v != null)) figs.push(mk("Board power", "Mean per interval (W)", w, `${r1(last(w), 1)} W`));
+  return { id: "soak", phase: 3, title, figs, layout: "two",
+    lede: `${pipeName(r.pipeline)} ${r.order || ""}, ${r.workers} worker${plural(r.workers, "", "s")}, ${r.jpeg === "nvjpg" ? "NVJPG" : "CPU"} JPEG decode, measured continuously and summarized every interval.`,
+    sources: d.sources };
+}
+
+/* Add a chapter: append {key, render} here and the matching payload key in host/report.py.
+   A chapter object may carry phase: 3 to sit under the Phase 3 divider. */
 const CHAPTERS = [
   { key: "models", render: renderModels },
   { key: "power", render: renderPower },
   { key: "stages", render: renderStages },
   { key: "gpuprep", render: renderGpuprep },
   { key: "accuracy", render: renderAccuracy },
+  { key: "barber", render: renderBarber },
   { key: "dvfs", render: renderDvfs },
+  { key: "powerpipes", render: renderPowerPipes },
   { key: "overlap", render: renderOverlap },
+  { key: "assistant", render: renderAssistant },
+  { key: "product", render: renderProduct },
+  { key: "soak", render: renderSoak },
 ];
+
 
 /* ============================================================== appendix */
 function sortable(table) {
@@ -968,7 +1157,8 @@ function renderAppendix() {
     { h: "Run", t: 1, v: (r) => r.label }, { h: "Time", t: 1, v: (r) => r.timestamp.replace("T", " ").slice(0, 16) },
   ], A.models);
   const pt = table("Pipelines (4 MP JPEG frames)", [
-    { h: "Pipeline", t: 1, v: (r) => r.mode === "zxing" ? "Barcode (zxing, whole frame)" : pipeName(r.pipeline) },
+    { h: "Pipeline", t: 1, v: (r) => r.mode === "zxing" ? "Barcode (zxing, whole frame)" : r.pipeline === "assistant" ? `Barcode + OCR (${r.mode})` : r.pipeline === "product" ? "Product recognition" : pipeName(r.pipeline) },
+    { h: "Data set", t: 1, v: (r) => r.data_set === "barber" ? "BarBeR photos" : "synthetic" },
     { h: "Size", v: (r) => r.size }, { h: "Precision", t: 1, v: (r) => fmtPrec(r.precision, r.calibrator) },
     { h: "JPEG", t: 1, v: (r) => r.jpeg === "nvjpg" ? "NVJPG" : "CPU" }, { h: "Prep", t: 1, v: (r) => r.mode === "zxing" ? null : r.prep.toUpperCase() },
     { h: "Workers", v: (r) => r.workers }, { h: "Clocks", t: 1, v: (r) => r.clocks_locked ? "locked" : "default" },
@@ -976,7 +1166,7 @@ function renderAppendix() {
     { h: "vs TC53", v: (r) => r.ref ? r.ref.ms / r.p50 : null, f: (v) => fmtX(v) },
     { h: "FPS", v: (r) => r.fps, f: (v) => r1(v, 1) }, { h: "Board W", v: (r) => r.watts, f: (v) => r1(v, 1) },
     { h: "mJ / frame", v: (r) => r.mj, f: (v) => r1(v, 0) }, { h: "Accuracy", v: (r) => r.accuracy, f: (v) => fmtPct(v, 1) },
-    { h: "GPU MHz", v: (r) => r.gpu_mhz, f: (v) => r1(v, 0) }, { h: "Throttle events", v: (r) => r.throttle },
+    { h: "GPU MHz", v: (r) => r.gpu_mhz, f: (v) => r1(v, 0) }, { h: "Over-current alarms", v: (r) => r.throttle },
     { h: "Run", t: 1, v: (r) => r.label }, { h: "Time", t: 1, v: (r) => r.timestamp.replace("T", " ").slice(0, 16) },
   ], A.pipelines);
   const n = A.models.length + A.pipelines.length;
@@ -996,7 +1186,8 @@ function renderAppendix() {
         H("li", { html: "<b>Board power, not SoC power.</b> Energy is whole-board input power (dev kit, about 5–6 W idle) over the timed loop. A handheld SoC idles far lower, so absolute energy favors the handheld; the comparisons here are between Jetson configurations." }),
         H("li", { html: "<b>Zebra figures are published, not measured here.</b> TC53 times come from Zebra’s AI Data Capture SDK documentation for the same job at the same detector input size; the models differ." }),
         H("li", { html: "<b>Default clocks move between sessions.</b> With DVFS active the same configuration varies 10–25% across sessions; comparisons are made within one session." }),
-        thr.length ? H("li", { html: `<b>Throttle events.</b> ${thr.length} of ${A.pipelines.length} pipeline configurations logged throttle events during the timed loop (column in the table); the highest junction temperature in any row was ${r1(tjMax, 0)} °C.` }) : null,
+        thr.length ? H("li", { html: `<b>Over-current alarms.</b> ${thr.length} of ${A.pipelines.length} pipeline configurations logged the SoC’s over-current alarm (<code>throttle_events</code>, which can briefly throttle clocks) during the timed loop, mostly above about 16 W board power (column in the table); the highest junction temperature in any row was ${r1(tjMax, 0)} °C.` }) : null,
+        H("li", { html: "<b>Accuracy column.</b> Barcodes decoded, OCR lines read exactly, or product top-1; BarBeR rows are real photos, every other row is a synthetic test set." }),
         H("li", { html: "<b>Synthetic test sets.</b> Barcode and OCR frames are generated with exact ground truth; accuracy on real photos has not been measured yet." }),
         H("li", { html: `Full definitions and caveats: <a href="../docs/methodology.md">methodology</a>, <a href="../docs/results-phase1.md">Phase 1 results</a>, <a href="../docs/results-phase2.md">Phase 2 results</a>.` }),
       ))));
@@ -1027,7 +1218,9 @@ function main() {
   const built = [];
   for (const c of CHAPTERS) {
     if (!DATA[c.key]) continue;
-    const ch = c.render(DATA[c.key]);
+    let ch = null;
+    try { ch = c.render(DATA[c.key]); } catch (e) { console.error(`chapter ${c.key}:`, e); }  // one bad payload never blanks the page
+
     if (ch) built.push(ch);
   }
   const K = Object.fromEntries(built.map((c) => [c.id, c.kpi]));
@@ -1049,7 +1242,10 @@ function main() {
 
   else if (ov) tiles.push(kpiTile({ value: fmtX(ov.mult, 1), label: "Throughput from overlapping frames", caption: `${pipeName(ov.best.pipeline)} ${ov.best.size} px` }));
 
-  const tPhase = DATA.appendix.models.length && DATA.appendix.pipelines.length ? "Phase 1 models · Phase 2 pipelines" : "";
+  const PH = { 1: "Phase 1 · Bare networks against the handheld NPU", 2: "Phase 2 · Handheld pipelines on 4 MP frames", 3: "Phase 3 · Several models per frame, product recognition, sustained load" };
+  built.forEach((c) => { c.phase = c.phase || (c.id === "models" || c.id === "power" ? 1 : 2); });
+  const phases = [...new Set(built.map((c) => c.phase))];
+  const tPhase = phases.map((p) => `Phase ${p}`).join(" · ");
   add(app, [
     H("header", {},
       H("div", { class: "top" }, H("div", { class: "kicker" }, `fieldbench · ${tPhase}`), themeControl()),
@@ -1063,7 +1259,8 @@ function main() {
         H("span", {}, `Generated ${DATA.generated}`))),
     tiles.length ? H("section", { class: "kpis", "aria-label": "Headline numbers" }, tiles) : null,
     H("nav", { class: "story", "aria-label": "The story in short" }, H("h2", {}, "The story in short"),
-      H("ol", {}, built.map((c) => H("li", {}, H("a", { href: `#${c.id}` }, c.title))))),
+      H("ol", {}, built.map((c, i) => [i === 0 || built[i - 1].phase !== c.phase ? H("li", { class: "ph", "aria-hidden": "true" }, PH[c.phase].split(" · ")[0]) : null,
+        H("li", {}, H("a", { href: `#${c.id}` }, c.title))]))),
     H("div", { class: "key", "aria-label": "Color key used in every chart" },
       H("span", {}, H("i", { class: "sw accent" }), "Jetson: the result each chart is about"),
       H("span", {}, H("i", { class: "sw context" }), "Other Jetson configurations"),
@@ -1071,11 +1268,15 @@ function main() {
       H("span", {}, H("i", { class: "sw cost" }), "The cost: CPU-bound stages, lost accuracy, DVFS tax")),
   ]);
   built.forEach((c, i) => {
+    if (i === 0 || built[i - 1].phase !== c.phase) {
+      const [a, b] = PH[c.phase].split(" · ");
+      add(app, H("div", { class: "phase-div", role: "separator" }, H("span", {}, a), H("b", {}, b)));
+    }
     add(app, H("section", { class: "chapter", id: c.id, "aria-labelledby": `${c.id}-h` },
       H("div", { class: "num" }, String(i + 1).padStart(2, "0")),
       H("h2", { id: `${c.id}-h` }, c.title),
       H("p", { class: "lede", html: c.lede }),
-      H("div", { class: `figs ${c.layout}` }, c.figs),
+      c.figs.length ? H("div", { class: `figs ${c.layout}` }, c.figs) : null,
       c.after ? H("p", { class: "after" }, c.after) : null,
       c.sources ? H("p", { class: "source" }, sourcesLine(c.sources)) : null));
   });

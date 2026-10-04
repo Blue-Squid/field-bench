@@ -41,16 +41,18 @@ Work is organized in phases:
 
 - **Phase 1: model benchmarks.** YOLO11n and MobileNetV3-Large at FP32/FP16/INT8, in every power mode.
 - **Phase 2: handheld pipelines.** Barcode reading (oriented detector + deskewed crops + zxing-cpp) and OCR (PP-OCRv5 mobile) on synthetic 4 MP frames with exact ground truth. This phase also covers calibrated INT8, NVJPG hardware decode, a bit-exact CUDA preprocessing kernel, DVFS effects, and stage overlap.
+- **Phase 3: the handheld assistant.** Barcode and OCR models on every frame, sequential and concurrent; product recognition by embedding + gallery lookup on real store photos; and a sustained-load soak.
 
 **Status and known gaps.** Phase 1 and Phase 2 are complete. These are deliberately left open and are stated wherever they affect a number:
 
 - **Recognizer width buckets (OCR).** Every text line is padded to 640 px for the recognizer, a flat ~33 ms per frame. Bucketing lines by width (for example 160/320/640 px engines) would cut that.
 - **Real-photo barcode accuracy.** On 600 real photos from [BarBeR](https://ditto.ing.unimore.it/barber/), the synthetic-trained detector reads 60% of barcodes, against 70% for whole-frame zxing ([Phase 2, section 13](docs/results-phase2.md#13-real-photos-barber)). Fine-tuning the detector on real images is open.
 - **7W pipelines.** The 7W mode needs a reboot to enter, so pipeline power-mode results cover 15W, 25W and MAXN_SUPER. Model benchmarks include 7W.
+- **Phase 3:** two 20-minute soaks at about 16 W (2 workers, at the over-current limit) hung after about 20 minutes, with and without NVJPG. The cause is open ([Phase 3, section 3](docs/results-phase3.md#3-sustained-load-thermal-soak)). Product recognition has no shelf localizer (the test photos are product-centred), and concurrent model branches don't use CUDA stream priorities yet.
 
 ## 2. Headline results
 
-Jetson Orin Nano Super, MAXN_SUPER power mode, TensorRT 10.3, batch 1. Full tables and analysis: [Phase 1 results](docs/results-phase1.md), [Phase 2 results](docs/results-phase2.md).
+Jetson Orin Nano Super, MAXN_SUPER power mode, TensorRT 10.3, batch 1. Full tables and analysis: [Phase 1](docs/results-phase1.md), [Phase 2](docs/results-phase2.md) and [Phase 3](docs/results-phase3.md) results.
 
 **Bare networks against the QCS6490 NPU** (best published QCS6490 latency ÷ Jetson GPU p50; above 1× means the Jetson is faster):
 
@@ -69,6 +71,8 @@ Jetson Orin Nano Super, MAXN_SUPER power mode, TensorRT 10.3, batch 1. Full tabl
 | OCR, 2560 px detector | FP16, NVJPG, GPU preprocessing | 203.0 ms | 480 ms (**2.36×**) | 89.3% |
 | OCR, 1280 px, locked clocks | as above + `jetson_clocks` | 76.8 ms | 180 ms (**2.34×**) | 83.8% |
 | Barcode 640 px, 3 workers | FP16, NVJPG, GPU preprocessing | 53.3 ms, **55 frames/s** | 57 ms, one frame at a time | 93.1% |
+| Barcode 640 + OCR 1280, same frame | concurrent branches | 136.1 ms | 237 ms (57 + 180) (**1.74×**) | 93.8% / 83.0% |
+| Product recognition | MobileNetV3-L embedding, FP16 | 7.4 ms, 239 images/s with 3 workers | – | 71.0% top-1, 96.5% top-5 |
 
 What the numbers say:
 
@@ -79,6 +83,7 @@ What the numbers say:
 5. **The default DVFS governors cost these pipelines 18–45% of their latency.** The units take turns, so each one's governor keeps clocks low. Locking clocks uses the same or *less* energy per frame.
 6. **Overlapping frames fixes that without root.** Three barcode-pipeline workers run 3.3× the throughput of one (55 frames/s) at *lower* per-frame latency and 57% less energy per frame. OCR saturates the GPU at two workers, with 1.8× throughput ([section 11](docs/results-phase2.md#11-stage-overlap)).
 7. **Synthetic training doesn't transfer by itself.** On real photos (BarBeR), the detector pipeline reads 60% of barcodes against 70% for whole-frame zxing, and larger input sizes make it worse. The synthetic results measure speed and the pipeline's design, not field accuracy ([section 13](docs/results-phase2.md#13-real-photos-barber)).
+8. **Reading barcodes on top of OCR costs about 12% more per frame.** Running both models on every frame takes 136–151 ms, 1.6–1.7× faster than a TC53 doing the two jobs in turn ([Phase 3](docs/results-phase3.md)).
 
 ## 3. Target devices
 
@@ -213,7 +218,24 @@ Check that the GPU preprocessing kernel still matches the CPU path, for example 
 ssh jetson 'cd fieldbench && .venv/bin/python -m fieldbench.gpuprep'
 ```
 
-### 6.3 Rules for clean measurements
+### 6.3 Phase 3: several models, products, soak
+
+```bash
+make products          # Grocery Store Dataset (MIT) → data/products/{gallery,test}
+.venv/bin/python host/export_models.py mobilenetv3l_embed
+
+# Barcode 640 + OCR 1280 on every frame, branches in turn vs in parallel
+make live CMD=pipeline ARGS="assistant --jpeg nvjpg --prep gpu --order sequential concurrent --workers 1 2"
+
+# Product recognition: embedding + class-centroid lookup against the gallery
+make live CMD=pipeline ARGS="product --workers 1 2 3"
+
+# Soak with throughput, power, clocks and temperatures every 30 s. One worker keeps the board
+# below its over-current limit; 2-worker soaks at ~16 W hung after ~20 min (docs/results-phase3.md, section 3)
+make live CMD=pipeline ARGS="assistant --jpeg cpu --prep gpu --order concurrent --workers 1 --duration 600 --series 30 --cooldown 0 --label soak"
+```
+
+### 6.4 Rules for clean measurements
 
 - **One benchmark at a time** on the board, with nothing heavy alongside it. `make live` refuses to start while a session is already running.
 - **Never lock or unlock clocks during a sweep.** `jetson_clocks` mid-run makes the rows on either side incomparable. Lock or restore only between runs:
@@ -233,6 +255,7 @@ ssh jetson 'cd fieldbench && .venv/bin/python -m fieldbench.gpuprep'
 | `barcode_yolo11n_{640,1280,1600}` | Oriented barcode detection, 1D + 2D | 1×3×S×S | YOLO11n-OBB fine-tuned here; AGPL-3.0 | Zebra TC53: 57 / 94 / 124 ms detect + decode |
 | `ppocr5_det_{640,1280,1600,2560}` | Text detection (DB) | 1×3×S×S | PP-OCRv5 mobile, Apache-2.0 | Zebra TC53 TextOCR: 110 / 180 / 270 / 480 ms |
 | `ppocr5_rec_en` | Text-line recognition (CTC) | 8×3×48×640 | PP-OCRv5 mobile English, Apache-2.0 | – |
+| `mobilenetv3l_embed` | Product embedding (960-d) | 1×3×224×224 | torchvision, BSD-3-Clause | QCS6490: 1.17 ms (classifier version) |
 
 All engines are built from **static-shape ONNX**. Every export is checked against the original framework (maximum absolute difference ≤ 1e-3) and refuses to save on a mismatch.
 
@@ -242,6 +265,9 @@ All engines are built from **static-shape ONNX**. Every export is checked agains
 barcode, detect   JPEG decode ─▶ letterbox ─▶ YOLO11n-OBB (TensorRT) ─▶ rotated NMS ─▶ per box: rotate upright + crop ─▶ zxing-cpp
 barcode, zxing    JPEG decode (gray) ─▶ zxing-cpp over the whole frame                     (classic CPU scanner, no network)
 ocr               JPEG decode ─▶ resize + normalize ─▶ DB text detector ─▶ boxes ─▶ line crops ─▶ recognizer ×8 ─▶ CTC decode
+assistant         JPEG decode (once) ─┬▶ barcode branch (as above)          ┐ in turn (--order sequential)
+                                      └▶ ocr branch (as above)              ┘ or as two threads/streams (concurrent)
+product           JPEG decode ─▶ resize 256 + crop 224 ─▶ MobileNetV3-L embedding ─▶ cosine vs class centroids ─▶ label
 ```
 
 | Switch | Values | Effect |
@@ -260,6 +286,7 @@ Both test sets are **synthetic and generated on the host**, so every barcode str
 | Barcode test | 300 × 4 MP | 677 barcodes: EAN-13, UPC-A, EAN-8, Code 128, Code 39, ITF, QR, DataMatrix, PDF417, on printed labels over COCO photos; text and stripe decoys | Rotation, perspective, uneven light, defocus/motion blur, noise, JPEG; 1D modules 1.4–4.5 px, 2D 2.5–10 px |
 | OCR test | 200 × 4 MP | 1,394 lines on product, shipping, lot/expiry, price and asset labels; sans and mono fonts, cap height 14–56 px | Tilt up to 30°, same degradations |
 | BarBeR sample | 600 real photos | 659 barcodes from 12 public datasets (Vezzali et al., ICPR 2024), annotated strings; sampled by `make barber` from your own download | Real-world: blur, close-ups, low resolution; modules from under 1 px to over 20 px |
+| Products | 2,936 gallery + 2,485 test | Grocery Store Dataset: real in-store phone photos (348×348 px), 81 products in 43 groups | Real-world (lighting, clutter, packaging variants) |
 | Calibration | 300 + 100 | The first 300 barcode validation frames and 100 separate OCR frames; never from a test set | – |
 
 Barcode ground truth is the string zxing-cpp reads from each code's clean render, so the scoring is consistent with the decoder.
@@ -303,6 +330,7 @@ host/                    runs on the build host
   export_models.py       PyTorch / PaddleOCR → static ONNX, verified against the source model
   make_barcodes.py       synthetic barcode scenes, oriented-box labels, ground-truth strings
   make_text.py           synthetic OCR label scenes and ground-truth lines
+  make_products.py       Grocery Store Dataset → product gallery and test sets
   make_barber.py         BarBeR real photos → a stratified barcode test set
   train_barcode.py       fine-tune YOLO11n-OBB on the barcode set
   ort_runner.py          ONNX Runtime stand-in for the TensorRT runner (host-side pipeline checks)
@@ -316,6 +344,8 @@ fieldbench/              runs on the Jetson
   pipeline.py            pipeline runner: accuracy pass, per-stage timing, worker pool, telemetry
   barcode.py             barcode pipelines and scoring
   ocr.py                 PP-OCRv5 pipeline (DB postprocess, line crops, CTC) and scoring
+  assistant.py           barcode + OCR on every frame, sequential or concurrent branches
+  product.py             product recognition: embedding, class-centroid / kNN lookup, scoring
   yolo.py                letterbox, axis-aligned and oriented-box postprocessing
   jpeg.py                JPEG decoders: OpenCV, and NVJPG via a ctypes shim compiled on first use
   gpuprep.py             fused letterbox/normalize CUDA kernel (NVRTC); `python -m fieldbench.gpuprep` verifies it
@@ -336,6 +366,7 @@ models/ engines/ data/ runs/   generated locally, not in git
 | [docs/adapting.md](docs/adapting.md) | Running on another Jetson, adding your own handheld's reference numbers, porting the pipelines to a handheld, using your own models and data. |
 | [docs/results-phase1.md](docs/results-phase1.md) | Model benchmarks: precision and power-mode sweeps. |
 | [docs/results-phase2.md](docs/results-phase2.md) | Pipeline findings: accuracy, stage breakdowns, INT8, NVJPG, GPU preprocessing, DVFS, stage overlap. |
+| [docs/results-phase3.md](docs/results-phase3.md) | Several models per frame, product recognition, sustained load. |
 | [docs/int8-quantization-theory.md](docs/int8-quantization-theory.md) | INT8 inference, scale selection, TensorRT calibrators, implicit vs explicit quantization. |
 | [docs/int8-calibration-in-fieldbench.md](docs/int8-calibration-in-fieldbench.md) | How the calibrated engines are built here, and what worked for which model. |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Known failure modes and their fixes. |
@@ -347,6 +378,7 @@ models/ engines/ data/ runs/   generated locally, not in git
 - **PP-OCRv5 (PaddleOCR): Apache-2.0.** ONNX conversions from [RapidOCR](https://github.com/RapidAI/RapidOCR).
 - **MobileNetV3 weights (torchvision): BSD-3-Clause.**
 - **BarBeR** (Vezzali, Bolelli, Santi and Grana, ICPR 2024): requires a free account at its site; no data is redistributed here, and only aggregate accuracy is reported.
+- **Grocery Store Dataset** (Klasson, Zhang and Kjellström, WACV 2019): MIT license. Downloaded by `make products`, not redistributed here.
 - **COCO val2017** images are used only as backgrounds in generated scenes (CC BY 4.0 annotations; images under their Flickr licenses).
 - **zxing-cpp: Apache-2.0.**
 - Reference latencies are © their publishers: Qualcomm AI Hub model cards and Zebra Technologies' AI Data Capture SDK documentation. They are quoted for comparison, and every row in `fieldbench/catalog.py` links its source.

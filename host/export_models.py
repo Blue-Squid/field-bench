@@ -35,6 +35,32 @@ def export_mobilenetv3l():
     )
 
 
+def export_mobilenetv3l_embed():
+    """MobileNetV3-L without its classifier head: features -> avgpool -> flatten, a 960-d embedding
+    for product recognition by kNN lookup (fieldbench/product.py). Checked against PyTorch."""
+    import numpy as np
+    import onnxruntime as ort
+    import torch
+    from torchvision.models import MobileNet_V3_Large_Weights, mobilenet_v3_large
+
+    net = mobilenet_v3_large(weights=MobileNet_V3_Large_Weights.IMAGENET1K_V2).eval()
+    model = torch.nn.Sequential(net.features, net.avgpool, torch.nn.Flatten(1)).eval()
+    x = torch.from_numpy(np.random.default_rng(0).uniform(-2, 2, (1, 3, 224, 224)).astype(np.float32))
+    dst = MODELS / "mobilenetv3l_embed.onnx"
+    tmp = dst.with_suffix(".tmp.onnx")
+    torch.onnx.export(model, x, tmp, input_names=["images"], output_names=["embedding"],
+                      opset_version=OPSET, dynamo=False)
+    with torch.no_grad():
+        ref = model(x).numpy()
+    got = ort.InferenceSession(str(tmp), providers=["CPUExecutionProvider"]).run(None, {"images": x.numpy()})[0]
+    err = float(np.abs(ref - got).max()) if got.shape == ref.shape == (1, 960) else float("inf")
+    if err > 1e-3:
+        tmp.unlink()
+        raise SystemExit(f"{dst.name}: ONNX output differs from PyTorch (shape {got.shape}, max abs diff {err:.3g})")
+    tmp.replace(dst)
+    print(f"  ONNX vs PyTorch: max abs diff {err:.3g} (|embedding| max {np.abs(ref).max():.3g})")
+
+
 def export_barcode(size):
     """YOLO11n fine-tuned on barcodes (host/train_barcode.py), at one of Zebra's input sizes."""
     from ultralytics import YOLO
@@ -97,6 +123,7 @@ def export_ocr_rec():
 
 
 EXPORTERS = {"yolo11n": export_yolo11n, "mobilenetv3l": export_mobilenetv3l,
+             "mobilenetv3l_embed": export_mobilenetv3l_embed,
              **{f"ppocr5_det_{s}": (lambda s=s: export_ocr_det(s)) for s in (640, 1280, 1600, 2560)},
              "ppocr5_rec_en": export_ocr_rec,
              **{f"barcode_yolo11n_{s}": (lambda s=s: export_barcode(s)) for s in (640, 1280, 1600)}}

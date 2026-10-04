@@ -97,3 +97,17 @@ MODELS["ppocr5_rec_en"] = {
 # Context only (different model): EasyOCR on the QCS6490, from Qualcomm AI Hub, input 608x800.
 EASYOCR_QCS6490 = [_qcs("TFLite", "w8a8", 52.253, "EasyOCR") | {"covers": "detector (CRAFT), NPU"},
                    _qcs("TFLite", "w8a8", 181.161, "EasyOCR") | {"covers": "recognizer, runs on CPU", "unit": "CPU"}]
+
+# Product recognition: MobileNetV3-L backbone (features -> avgpool -> flatten, 960-d) as the image
+# embedding for a kNN lookup against a gallery of known products (fieldbench/product.py).
+# AI Hub times the classifier version: its extra head (Linear 960->1280 -> Linear 1280->1000) is
+# ~2.5M MACs, about 1% of the network's ~217M, so the references below slightly overstate this model.
+MODELS["mobilenetv3l_embed"] = {
+    "onnx": "models/mobilenetv3l_embed.onnx",
+    "task": "embedding",
+    "workload": "Product recognition: embedding for kNN lookup",
+    "input": "1x3x224x224",
+    "params_m": 2.97,
+    "license": "BSD-3-Clause (torchvision)",
+    "references": [dict(r) for r in MODELS["mobilenetv3l"]["references"]],
+}

@@ -11,6 +11,7 @@ fieldbench has two entry points: `make` targets on the host, which sync and driv
 | `make train-barcode` | Fine-tune YOLO11n-OBB on it (CUDA), then export `barcode_yolo11n_{640,1280,1600}.onnx`, each verified against PyTorch. |
 | `make ocr-data` | Generate the OCR test set (200 frames) and calibration set (100 frames) in `data/ocr/`. |
 | `make barber` | Convert a downloaded BarBeR dataset (`data/barber/BarBeR - Dataset/`) into a 600-photo stratified test set at `data/barber/fieldbench`; `--limit 0` on `host/make_barber.py` keeps all photos. |
+| `make products` | Download the Grocery Store Dataset and lay it out as `data/products/{gallery,test}` (images + `gt.jsonl`). |
 | `make sync` | rsync `fieldbench/`, `models/*.onnx` and the pipeline test and calibration images to `~/fieldbench` on the board. **`fieldbench/` is synced with `--delete`**, so edit code on the host, never on the board. |
 | `make info` | Print device facts and one telemetry sample. |
 | `make modes` | List nvpmodel power modes and whether each switches live or needs a reboot. |
@@ -90,7 +91,21 @@ make live CMD=pipeline ARGS="barcode --modes detect --sizes 640 --precisions fp1
 make live CMD=pipeline ARGS="ocr --sizes 1280 --jpeg nvjpg --prep gpu --workers 2 --duration 1200 --series 30 --label soak"
 ```
 
-## 6. Other entry points
+## 6. `python -m fieldbench pipeline {assistant,product}` (Phase 3)
+
+All the pipeline flags above apply. In addition:
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--order {sequential,concurrent} …` | both | Assistant: run the barcode and OCR branches one after the other, or as two threads with their own CUDA streams. |
+| `--sizes S` / `--ocr-size S` | 640 / 1280 | Assistant: barcode detector size and OCR detector size. `--precisions` applies to the barcode detector; OCR stays FP16. |
+| `--data DIR` / `--data-ocr DIR` | `data/barcodes/test` / `data/ocr/test` | Assistant: the two test sets, interleaved; every frame goes through both branches. |
+| `--every N` | 2 | Assistant: use every N-th frame of each set, to keep the accuracy pass short. |
+| `--gallery DIR` | `data/products/gallery` | Product: gallery images (embedded once at startup, untimed). |
+
+Assistant rows report stages `jpeg_decode`, `barcode` and `ocr` (branch wall times, which overlap when concurrent), plus each branch's own stages as `bc.<stage>` and `ocr.<stage>`. The TC53 ratio uses the sum of Zebra's barcode and OCR times.
+
+## 7. Other entry points
 
 | Command | Where | What |
 |---|---|---|
@@ -99,6 +114,6 @@ make live CMD=pipeline ARGS="ocr --sizes 1280 --jpeg nvjpg --prep gpu --workers 
 | `python host/report.py [files…] [-o out.html]` | Host | Render a report from any subset of result files. |
 | `python host/make_barcodes.py`, `python host/make_text.py` | Host | Dataset generators. `--train/--val/--test` (barcodes) or `--test/--calib` (OCR) set the frame counts, `--workers` the parallel processes, `--out` the folder. |
 
-## 7. Engine files
+## 8. Engine files
 
 `engines/<model>.<precision>.trt<version>.<sha1[:10]>.engine`, and for calibrated INT8 `engines/<model>.int8cal-<calibrator>-<set><count>.trt<version>.<sha1[:10]>.engine` with a matching `.calib`. Builds take 2–10 min for the Phase 1 models, 9–33 min for FP16 pipeline detectors, and 15–45 min for calibrated INT8. Calibrated builds cap the TensorRT workspace at 1 GB, which avoids `NvMap` allocation failures on the 8 GB board. An engine is only valid for the TensorRT version and GPU it was built on.

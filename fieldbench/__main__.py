@@ -7,6 +7,8 @@
   python -m fieldbench pipeline barcode --modes zxing detect --sizes 640 1280 --precisions fp16 int8
   python -m fieldbench pipeline ocr --sizes 1280 1600 --precisions fp16 --jpeg cpu nvjpg --prep cpu gpu
   python -m fieldbench pipeline ocr --sizes 1280 --jpeg nvjpg --prep gpu --workers 1 2 3   # overlap frames
+  python -m fieldbench pipeline assistant --order sequential concurrent   # barcode + OCR on every frame
+  python -m fieldbench pipeline product      # embedding + kNN product recognition
   python -m fieldbench.gpuprep               # GPU preprocessing vs the CPU path: diffs and cost
 """
 import argparse
@@ -126,6 +128,11 @@ WORKLOADS = {
     # accuracy (docs/int8-calibration-in-fieldbench.md). INT8 is still available on request.
     "ocr": {"data": "data/ocr/test", "calib": "data/ocr/calib", "sizes": [1280, 1600],
             "precisions": ["fp16"], "calibrator": "entropy"},
+    # Barcode 640 + OCR 1280 on every frame: Zebra's default barcode size and its mid OCR size.
+    "assistant": {"data": "data/barcodes/test", "data_ocr": "data/ocr/test", "calib": "data/barcodes/val/images",
+                  "sizes": [640], "ocr_size": 1280, "precisions": ["fp16"], "calibrator": "minmax"},
+    "product": {"data": "data/products/test", "gallery": "data/products/gallery", "calib": None,
+                "sizes": [224], "precisions": ["fp16"], "calibrator": None},
 }
 
 
@@ -212,20 +219,62 @@ def _ocr_pipelines(args):
                     yield pipe
 
 
+def _assistant_pipelines(args):
+    from . import assistant, barcode, ocr, yolo
+    from . import engine as trt_engine
+    from .jpeg import make_decoder
+    from .runner import TrtRunner
+
+    rec_path, _ = trt_engine.build(MODELS["ppocr5_rec_en"]["onnx"], "fp16")
+    oc_name = f"ppocr5_det_{args.ocr_size}"
+    oc_path, _ = trt_engine.build(MODELS[oc_name]["onnx"], "fp16")
+    charset = ocr.load_charset("models/ppocr5_rec_en.chars.txt")
+    for size, precision in itertools.product(args.sizes, args.precisions):
+        name = f"barcode_yolo11n_{size}"
+        print(f"> assistant: barcode {size} [{precision}] + ocr {args.ocr_size} [fp16]")
+        bc_path = _engine(MODELS[name]["onnx"], precision, size, args, yolo.letterbox_into, "bc")
+        for jpeg, prep, order in itertools.product(args.jpeg, args.prep, args.order) if bc_path else []:
+            bc = barcode.DetectPipeline(TrtRunner(bc_path), name, precision, size,
+                                        int8_calibrated=True if precision == "int8" else None,
+                                        jpeg=make_decoder("cpu"), jpeg_name=jpeg, prep=prep)
+            bc.config["calibrator"] = args.calibrator if precision == "int8" else None
+            oc = ocr.OcrPipeline(TrtRunner(oc_path), TrtRunner(rec_path), charset, oc_name, args.ocr_size, "fp16",
+                                 "fp16", jpeg=make_decoder("cpu"), jpeg_name=jpeg, prep=prep)
+            yield assistant.AssistantPipeline(bc, oc, order, jpeg)
+
+
+def _product_pipelines(args):
+    from . import product
+    from .jpeg import make_decoder
+    from .runner import TrtRunner
+
+    gallery = product.load_frames(args.gallery)
+    for precision in args.precisions:
+        print(f"> product embedding + gallery match [{precision}], gallery {len(gallery)} images")
+        path = _engine(MODELS["mobilenetv3l_embed"]["onnx"], precision, 224, args, None, "prod")
+        for jpeg in args.jpeg if path else []:
+            yield product.ProductPipeline(TrtRunner(path), gallery, "mobilenetv3l_embed", precision,
+                                          jpeg=make_decoder(jpeg), jpeg_name=jpeg, engine_path=path)
+
+
 def _ref_ratio(r):
     """Zebra TC53 published pipeline time at this input size / our total p50 (>1: Jetson faster)."""
     refs = [next(iter(MODELS.get(d or "", {}).get("pipeline_references", [])), None)
             for d in (r.get("detector"), r.get("ocr_detector"))]
-    refs = [x for x in refs if x]
+    refs = [x for x in refs if x]  # assistant: both Zebra jobs, run one after the other on a TC53
     return sum(x["latency_ms"] for x in refs) / r["total_ms"]["p50"] if refs else float("nan")
 
 
 def _print_pipeline_table(workload, rows):
     stages = {"barcode": ["jpeg_decode", "preprocess", "infer", "postprocess", "decode"],
-              "ocr": ["jpeg_decode", "det_pre", "det_infer", "det_post", "rec_pre", "rec_infer", "rec_post"]}[workload]
+              "ocr": ["jpeg_decode", "det_pre", "det_infer", "det_post", "rec_pre", "rec_infer", "rec_post"],
+              "assistant": ["jpeg_decode", "barcode", "ocr"],
+              "product": ["jpeg_decode", "preprocess", "infer", "match"]}[workload]
     short = {"jpeg_decode": "jpeg", "preprocess": "prep", "postprocess": "post"}
     accs = {"barcode": [("decode_rate", "decoded"), ("detect_recall", "recall"), ("misreads", "miss")],
-            "ocr": [("line_exact", "exact"), ("cer", "cer"), ("word_recall", "words"), ("detect_recall", "recall")]}[workload]
+            "ocr": [("line_exact", "exact"), ("cer", "cer"), ("word_recall", "words"), ("detect_recall", "recall")],
+            "assistant": [("decode_rate", "decoded"), ("line_exact", "exact"), ("misreads", "miss")],
+            "product": [("top1", "top1"), ("top5", "top5"), ("top1_coarse", "coarse")]}[workload]
     print(f"\n{'config':<30}{'tot p50':>8}{'tot p90':>8}" + "".join(f"{short.get(s, s):>10}" for s in stages)
           + f"{'fps':>7}{'W':>7}{'mJ/fr':>8}" + "".join(f"{h:>8}" for _, h in accs) + f"{'vs TC53':>8}")
     multi_mode = len({r["device"].get("power_mode") for r in rows}) > 1
@@ -233,7 +282,8 @@ def _print_pipeline_table(workload, rows):
         st = {k: v["p50"] for k, v in r["stage_ms"].items()}
         what = ("zxing full frame" if r["mode"] == "zxing" else f"{r['input_size']} {r['precision']}"
                 + (f"/{r['calibrator']}" if r.get("calibrator") else "")) + f" {r.get('jpeg', 'cpu')}" \
-            + (" gpuprep" if r.get("prep") == "gpu" else "") + (f" x{r['workers']}" if r.get("workers", 1) > 1 else "")
+            + (" gpuprep" if r.get("prep") == "gpu" else "") + (f" x{r['workers']}" if r.get("workers", 1) > 1 else "") \
+            + (f" {r['mode'][:3]}" if workload == "assistant" else "")
         if multi_mode:
             what = f"{r['device'].get('power_mode')} {what}"
         vals = [r["accuracy"].get(k, float("nan")) for k, _ in accs]
@@ -256,8 +306,17 @@ def cmd_pipeline(args):
     args.sizes = args.sizes or defaults["sizes"]
     args.calibrator = args.calibrator or defaults["calibrator"]
     args.precisions = args.precisions or defaults["precisions"]
+    args.ocr_size = args.ocr_size or defaults.get("ocr_size")
+    args.gallery = args.gallery or defaults.get("gallery")
     sensors = Sensors()
-    frames = (barcode if args.workload == "barcode" else ocr).load_frames(args.data)
+    if args.workload == "assistant":
+        from . import assistant
+        frames = assistant.load_frames(args.data, args.data_ocr or defaults["data_ocr"], args.every)
+    elif args.workload == "product":
+        from . import product
+        frames = product.load_frames(args.data)
+    else:
+        frames = (barcode if args.workload == "barcode" else ocr).load_frames(args.data)
     items = sum(len(f.get("barcodes", f.get("lines", [1]))) for f in frames)
     out = Path(args.out or f"results/{dt.datetime.now():%Y%m%d-%H%M%S}-{args.workload}"
                f"{'-' + args.label if args.label else ''}.jsonl")
@@ -272,7 +331,8 @@ def cmd_pipeline(args):
                 power.set_mode(mode, settle_s=args.settle)
             dev = device_info()
             print(f"{dev['model']} | power mode {dev['power_mode']} | clocks locked: {dev['clocks_locked']}")
-            pipes = {"barcode": _barcode_pipelines, "ocr": _ocr_pipelines}[args.workload](args)
+            pipes = {"barcode": _barcode_pipelines, "ocr": _ocr_pipelines, "assistant": _assistant_pipelines,
+                     "product": _product_pipelines}[args.workload](args)
             with out.open("a") as f:
                 for pipe in pipes:
                     try:
@@ -342,7 +402,7 @@ def main():
     pl.add_argument("workload", choices=list(WORKLOADS))
     pl.add_argument("--modes", nargs="+", default=["zxing", "detect"], choices=["zxing", "detect"],
                     help="barcode only: zxing = zxing-cpp on the whole frame; detect = detector + zxing-cpp on crops")
-    pl.add_argument("--sizes", nargs="+", type=int, choices=[640, 1280, 1600, 2560],
+    pl.add_argument("--sizes", nargs="+", type=int, choices=[224, 640, 1280, 1600, 2560],
                     help="detector input sizes (barcode default 640 1280; ocr default 1280 1600)")
     pl.add_argument("--precisions", nargs="+", choices=PRECISIONS,
                     help="detector precision (default: barcode fp16 int8, ocr fp16); int8 is calibrated on --calib")
@@ -366,6 +426,12 @@ def main():
                     help="pipeline copies run as threads on overlapping frames (1 = one frame at a time); a list sweeps")
     pl.add_argument("--series", type=float, default=0,
                     help="also store throughput/latency/telemetry per window of this many seconds (soak runs)")
+    pl.add_argument("--order", nargs="+", default=["sequential", "concurrent"], choices=["sequential", "concurrent"],
+                    help="assistant only: barcode and OCR branches one after the other, or in parallel threads")
+    pl.add_argument("--ocr-size", type=int, choices=[640, 1280, 1600, 2560], help="assistant only: OCR detector size")
+    pl.add_argument("--data-ocr", help="assistant only: OCR test set (default data/ocr/test)")
+    pl.add_argument("--every", type=int, default=2, help="assistant only: use every n-th frame of each test set")
+    pl.add_argument("--gallery", help="product only: gallery folder (default data/products/gallery)")
     pl.add_argument("--label")
     pl.add_argument("--out")
     pl.set_defaults(fn=cmd_pipeline)
