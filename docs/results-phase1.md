@@ -1,6 +1,6 @@
 # Phase 1 results: model benchmarks
 
-Bare networks on random input tensors, batch 1, TensorRT 10.3 on the Jetson Orin Nano Super (JetPack 6.2.1), compared with the best published Qualcomm QCS6490 NPU latency for the same model. How the numbers are produced: README section 6. Raw rows: `results/*-full-sweep.jsonl`, `*-power-sweep.jsonl`, `*-power-7w.jsonl`.
+Bare networks on random input tensors, batch 1, TensorRT 10.3 on the Jetson Orin Nano Super (JetPack 6.2.1), compared with the best published Qualcomm QCS6490 NPU latency for the same model. How the numbers are produced: [methodology](methodology.md). Raw rows: `results/*-full-sweep.jsonl`, `*-power-sweep.jsonl`, `*-power-7w.jsonl`.
 
 ## 1. Precision sweep at MAXN_SUPER
 | Model | Precision | GPU p50 | GPU p99 | E2E p50 | FPS | Board power | Energy / inf (work) | Tj max | vs QCS6490 best |

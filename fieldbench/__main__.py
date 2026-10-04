@@ -4,9 +4,14 @@
   python -m fieldbench bench --models yolo11n mobilenetv3l --precisions fp16 int8
   python -m fieldbench bench --power-modes 15W 25W MAXN_SUPER
   python -m fieldbench power                 # list modes; --set 7W --reboot to change
+  python -m fieldbench pipeline barcode --modes zxing detect --sizes 640 1280 --precisions fp16 int8
+  python -m fieldbench pipeline ocr --sizes 1280 1600 --precisions fp16 --jpeg cpu nvjpg --prep cpu gpu
+  python -m fieldbench pipeline ocr --sizes 1280 --jpeg nvjpg --prep gpu --workers 1 2 3   # overlap frames
+  python -m fieldbench.gpuprep               # GPU preprocessing vs the CPU path: diffs and cost
 """
 import argparse
 import datetime as dt
+import itertools
 import json
 import socket
 import sys
@@ -113,6 +118,187 @@ def cmd_bench(args):
         print("int8 engines are uncalibrated: latency is representative, accuracy is not.")
 
 
+# Per-workload defaults for `pipeline`. Calibration images never come from the test set.
+WORKLOADS = {
+    "barcode": {"data": "data/barcodes/test", "calib": "data/barcodes/val/images", "sizes": [640, 1280],
+                "precisions": ["fp16", "int8"], "calibrator": "minmax"},
+    # OCR's detector stays FP16 by default: both calibrators cost it 28-53 points of exact-line
+    # accuracy (docs/int8-calibration-in-fieldbench.md). INT8 is still available on request.
+    "ocr": {"data": "data/ocr/test", "calib": "data/ocr/calib", "sizes": [1280, 1600],
+            "precisions": ["fp16"], "calibrator": "entropy"},
+}
+
+
+def _calib_batches(files, shape, prep):
+    """Calibration inputs from JPEG files, preprocessed exactly like the pipeline does."""
+    import cv2
+    import numpy as np
+
+    for f in files:
+        buf = np.empty(shape, np.float32)
+        prep(cv2.imread(str(f)), buf)
+        yield buf
+
+
+def _engine(onnx, precision, size, args, prep, tag):
+    """Build or fetch an engine; INT8 is calibrated on args.calib. Returns the path, or None on failure."""
+    from . import engine as trt_engine
+
+    try:
+        if precision == "int8":
+            files = sorted(Path(args.calib).glob("*.jpg"))[:args.calib_images]
+            if not files:
+                raise RuntimeError(f"no calibration images in {args.calib}")
+            batches = _calib_batches(files, (1, 3, size, size), prep)
+            # The id records how many images were actually used, not how many were asked for.
+            path, secs = trt_engine.build_calibrated(onnx, batches, f"{tag}{len(files)}", args.calibrator)
+        else:
+            path, secs = trt_engine.build(onnx, precision)
+    except Exception as exc:
+        print(f"  FAILED: {exc}", file=sys.stderr)
+        return None
+    print(f"  engine {'built in %.0fs' % secs if secs else 'cached'}: {path.name}")
+    return path
+
+
+def _barcode_pipelines(args):
+    """Yield ready pipelines for each requested configuration, building engines on the way."""
+    from . import barcode, yolo
+    from .jpeg import make_decoder
+    from .runner import TrtRunner
+
+    for mode in args.modes:
+        if mode == "zxing":
+            for jpeg in args.jpeg:
+                print(f"> barcode zxing (full frame, CPU) [jpeg {jpeg}]")
+                yield barcode.ZxingPipeline(jpeg=make_decoder(jpeg), jpeg_name=jpeg)
+            continue
+        for size in args.sizes:
+            name = f"barcode_yolo11n_{size}"
+            if name not in MODELS:
+                print(f"> no barcode detector at {size}; skipping")
+                continue
+            for precision in args.precisions:
+                print(f"> barcode detect {size} [{precision}]")
+                path = _engine(MODELS[name]["onnx"], precision, size, args, yolo.letterbox_into, "bc")
+                for jpeg, prep in itertools.product(args.jpeg, args.prep) if path else []:
+                    pipe = barcode.DetectPipeline(TrtRunner(path), name, precision, size,
+                                                  int8_calibrated=True if precision == "int8" else None,
+                                                  jpeg=make_decoder(jpeg), jpeg_name=jpeg, prep=prep)
+                    pipe.config["calibrator"] = args.calibrator if precision == "int8" else None
+                    yield pipe
+
+
+def _ocr_pipelines(args):
+    from . import ocr
+    from . import engine as trt_engine
+    from .jpeg import make_decoder
+    from .runner import TrtRunner
+
+    # The recognizer stays FP16: INT8 there would need calibration on line crops, and it is
+    # not the stage that grows with input size.
+    rec_path, secs = trt_engine.build(MODELS["ppocr5_rec_en"]["onnx"], "fp16")
+    charset = ocr.load_charset("models/ppocr5_rec_en.chars.txt")
+    for size in args.sizes:
+        name = f"ppocr5_det_{size}"
+        for precision in args.precisions:
+            print(f"> ocr det {size} [{precision}] + rec [fp16]")
+            path = _engine(MODELS[name]["onnx"], precision, size, args, ocr.det_preprocess_into, "ocr")
+            if path:
+                for jpeg, prep in itertools.product(args.jpeg, args.prep):
+                    pipe = ocr.OcrPipeline(TrtRunner(path), TrtRunner(rec_path), charset, name, size, precision,
+                                           "fp16", jpeg=make_decoder(jpeg), jpeg_name=jpeg, prep=prep)
+                    pipe.config["calibrator"] = args.calibrator if precision == "int8" else None
+                    yield pipe
+
+
+def _ref_ratio(r):
+    """Zebra TC53 published pipeline time at this input size / our total p50 (>1: Jetson faster)."""
+    refs = [next(iter(MODELS.get(d or "", {}).get("pipeline_references", [])), None)
+            for d in (r.get("detector"), r.get("ocr_detector"))]
+    refs = [x for x in refs if x]
+    return sum(x["latency_ms"] for x in refs) / r["total_ms"]["p50"] if refs else float("nan")
+
+
+def _print_pipeline_table(workload, rows):
+    stages = {"barcode": ["jpeg_decode", "preprocess", "infer", "postprocess", "decode"],
+              "ocr": ["jpeg_decode", "det_pre", "det_infer", "det_post", "rec_pre", "rec_infer", "rec_post"]}[workload]
+    short = {"jpeg_decode": "jpeg", "preprocess": "prep", "postprocess": "post"}
+    accs = {"barcode": [("decode_rate", "decoded"), ("detect_recall", "recall"), ("misreads", "miss")],
+            "ocr": [("line_exact", "exact"), ("cer", "cer"), ("word_recall", "words"), ("detect_recall", "recall")]}[workload]
+    print(f"\n{'config':<30}{'tot p50':>8}{'tot p90':>8}" + "".join(f"{short.get(s, s):>10}" for s in stages)
+          + f"{'fps':>7}{'W':>7}{'mJ/fr':>8}" + "".join(f"{h:>8}" for _, h in accs) + f"{'vs TC53':>8}")
+    multi_mode = len({r["device"].get("power_mode") for r in rows}) > 1
+    for r in rows:
+        st = {k: v["p50"] for k, v in r["stage_ms"].items()}
+        what = ("zxing full frame" if r["mode"] == "zxing" else f"{r['input_size']} {r['precision']}"
+                + (f"/{r['calibrator']}" if r.get("calibrator") else "")) + f" {r.get('jpeg', 'cpu')}" \
+            + (" gpuprep" if r.get("prep") == "gpu" else "") + (f" x{r['workers']}" if r.get("workers", 1) > 1 else "")
+        if multi_mode:
+            what = f"{r['device'].get('power_mode')} {what}"
+        vals = [r["accuracy"].get(k, float("nan")) for k, _ in accs]
+        print(f"{what:<30}{r['total_ms']['p50']:>8.1f}{r['total_ms']['p90']:>8.1f}"
+              + "".join(f"{st.get(s, 0):>10.1f}" for s in stages)
+              + f"{r['fps']:>7.1f}{r['telemetry_load'].get('p_VDD_IN_mean', 0) / 1000:>7.2f}"
+              f"{r['energy'].get('mj_per_frame_total', 0):>8.0f}"
+              + "".join(f"{v:>8}" if isinstance(v, int) else f"{v:>8.3f}" for v in vals) + f"{_ref_ratio(r):>8.2f}")
+    print("\nstage columns are p50 ms (they don't sum to the total exactly: p50 of each stage, not of the sum)."
+          "\nvs TC53 = Zebra's published time for the same job at that input size / our total p50 (>1: Jetson faster)")
+
+
+def cmd_pipeline(args):
+    from . import barcode, ocr
+    from . import pipeline as pipe_run
+
+    defaults = WORKLOADS[args.workload]
+    args.data = args.data or defaults["data"]
+    args.calib = args.calib or defaults["calib"]
+    args.sizes = args.sizes or defaults["sizes"]
+    args.calibrator = args.calibrator or defaults["calibrator"]
+    args.precisions = args.precisions or defaults["precisions"]
+    sensors = Sensors()
+    frames = (barcode if args.workload == "barcode" else ocr).load_frames(args.data)
+    items = sum(len(f.get("barcodes", f.get("lines", [1]))) for f in frames)
+    out = Path(args.out or f"results/{dt.datetime.now():%Y%m%d-%H%M%S}-{args.workload}"
+               f"{'-' + args.label if args.label else ''}.jsonl")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    original = power.current()
+    plan = _power_plan(args.power_modes, original)
+    print(f"{len(frames)} frames from {args.data} ({items} items)\nwriting {out}\n")
+    rows = []
+    try:
+        for mode in plan:
+            if mode != power.current():
+                power.set_mode(mode, settle_s=args.settle)
+            dev = device_info()
+            print(f"{dev['model']} | power mode {dev['power_mode']} | clocks locked: {dev['clocks_locked']}")
+            pipes = {"barcode": _barcode_pipelines, "ocr": _ocr_pipelines}[args.workload](args)
+            with out.open("a") as f:
+                for pipe in pipes:
+                    try:
+                        for workers in args.workers:
+                            print(f"  workers {workers}")
+                            r = pipe_run.run(pipe, frames, sensors, warmup_s=args.warmup, duration_s=args.duration,
+                                             min_frames=args.min_frames, workers=workers, series_s=args.series)
+                            r.update(timestamp=dt.datetime.now().isoformat(timespec="seconds"),
+                                     host=socket.gethostname(), label=args.label, device=dev, data=args.data)
+                            f.write(json.dumps(r) + "\n")
+                            f.flush()
+                            rows.append(r)
+                            print(f"  total p50 {r['total_ms']['p50']:.1f} ms, {r['fps']:.1f} fps")
+                            if args.cooldown:
+                                time.sleep(args.cooldown)
+                    except Exception as exc:  # keep sweeping
+                        print(f"  FAILED: {exc!r}", file=sys.stderr)
+                    finally:
+                        pipe.close()
+    finally:
+        if args.power_modes and power.current() != original:
+            print(f"restoring power mode {original}")
+            power.set_mode(original, settle_s=0)
+    _print_pipeline_table(args.workload, rows)
+
+
 def cmd_power(args):
     if args.set:
         try:
@@ -151,6 +337,38 @@ def main():
     p.add_argument("--set", metavar="MODE", help="switch to this mode")
     p.add_argument("--reboot", action="store_true", help="allow a reboot if the mode needs one")
     p.set_defaults(fn=cmd_power)
+
+    pl = sub.add_parser("pipeline", help="end-to-end handheld pipelines on real images, per-stage timing")
+    pl.add_argument("workload", choices=list(WORKLOADS))
+    pl.add_argument("--modes", nargs="+", default=["zxing", "detect"], choices=["zxing", "detect"],
+                    help="barcode only: zxing = zxing-cpp on the whole frame; detect = detector + zxing-cpp on crops")
+    pl.add_argument("--sizes", nargs="+", type=int, choices=[640, 1280, 1600, 2560],
+                    help="detector input sizes (barcode default 640 1280; ocr default 1280 1600)")
+    pl.add_argument("--precisions", nargs="+", choices=PRECISIONS,
+                    help="detector precision (default: barcode fp16 int8, ocr fp16); int8 is calibrated on --calib")
+    pl.add_argument("--jpeg", nargs="+", default=["cpu"], choices=["cpu", "nvjpg"],
+                    help="JPEG decoder: cpu = cv2.imdecode, nvjpg = Jetson NVJPG engine (fieldbench/jpeg.py)")
+    pl.add_argument("--prep", nargs="+", default=["cpu"], choices=["cpu", "gpu"],
+                    help="detector preprocessing: cpu = cv2 + numpy, gpu = fused CUDA kernel (fieldbench/gpuprep.py)")
+    pl.add_argument("--data", help="folder with gt.jsonl + images/ (default per workload)")
+    pl.add_argument("--calib", help="JPEGs for INT8 calibration (default per workload)")
+    pl.add_argument("--calib-images", type=int, default=300)
+    pl.add_argument("--calibrator", choices=["minmax", "entropy"],
+                    help="INT8 calibration algorithm (default per workload: barcode minmax, ocr entropy)")
+    pl.add_argument("--duration", type=float, default=20.0)
+    pl.add_argument("--warmup", type=float, default=3.0)
+    pl.add_argument("--min-frames", type=int, default=100)
+    pl.add_argument("--cooldown", type=float, default=5.0)
+    pl.add_argument("--power-modes", nargs="+", metavar="MODE",
+                    help="nvpmodel modes to sweep, lowest budget first (e.g. 15W 25W MAXN_SUPER); default: current mode")
+    pl.add_argument("--settle", type=float, default=10.0, help="seconds to wait after a mode switch")
+    pl.add_argument("--workers", nargs="+", type=int, default=[1],
+                    help="pipeline copies run as threads on overlapping frames (1 = one frame at a time); a list sweeps")
+    pl.add_argument("--series", type=float, default=0,
+                    help="also store throughput/latency/telemetry per window of this many seconds (soak runs)")
+    pl.add_argument("--label")
+    pl.add_argument("--out")
+    pl.set_defaults(fn=cmd_pipeline)
 
     args = ap.parse_args()
     args.fn(args)

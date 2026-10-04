@@ -35,7 +35,71 @@ def export_mobilenetv3l():
     )
 
 
-EXPORTERS = {"yolo11n": export_yolo11n, "mobilenetv3l": export_mobilenetv3l}
+def export_barcode(size):
+    """YOLO11n fine-tuned on barcodes (host/train_barcode.py), at one of Zebra's input sizes."""
+    from ultralytics import YOLO
+
+    weights = MODELS / "_ultralytics" / "barcode_yolo11n.pt"
+    if not weights.exists():
+        raise SystemExit(f"{weights} missing: run host/make_barcodes.py and host/train_barcode.py first")
+    out = YOLO(str(weights)).export(format="onnx", imgsz=size, opset=OPSET, simplify=True, dynamic=False, batch=1)
+    shutil.move(out, MODELS / f"barcode_yolo11n_{size}.onnx")
+
+
+PPOCR = "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv5"
+PPOCR_FILES = {"det": "det/ch_PP-OCRv5_det_mobile.onnx", "rec": "rec/en_PP-OCRv5_rec_mobile.onnx"}
+OCR_REC_SHAPE = (8, 3, 48, 640)  # 8 lines per batch, 48 px high, up to 640 px wide (80 CTC steps)
+
+
+def _ppocr_source(kind):
+    """Download a PP-OCRv5 mobile ONNX (RapidOCR's conversion of PaddleOCR, Apache-2.0) once."""
+    import urllib.request
+
+    src = MODELS / "_ppocr" / Path(PPOCR_FILES[kind]).name
+    if not src.exists():
+        src.parent.mkdir(parents=True, exist_ok=True)
+        urllib.request.urlretrieve(f"{PPOCR}/{PPOCR_FILES[kind]}", src)
+    return src
+
+
+def _static(src, dst, shape):
+    """Pin a dynamic-shape ONNX to one input shape and fold the shape arithmetic away."""
+    import numpy as np
+    import onnx
+    import onnxruntime as ort
+    import onnxslim
+
+    # onnxslim 0.1.97's EliminationReshape + FusionGemm rewrite of the SVTR neck in the PP-OCRv5
+    # recognizer silently corrupts its output (dropped spaces, misread characters).
+    model = onnxslim.slim(str(src), input_shapes=[f"x:{','.join(map(str, shape))}"],
+                          skip_fusion_patterns=["FusionGemm"])
+    onnx.save(model, dst)
+    x = np.random.default_rng(0).uniform(-1, 1, shape).astype(np.float32)
+    ref, got = (ort.InferenceSession(str(p)).run(None, {"x": x})[0] for p in (src, dst))
+    err = float(np.abs(ref - got).max())
+    if err > 1e-3:
+        raise SystemExit(f"{dst.name}: static model differs from {src.name} (max abs diff {err:.3g})")
+
+
+def export_ocr_det(size):
+    _static(_ppocr_source("det"), MODELS / f"ppocr5_det_{size}.onnx", (1, 3, size, size))
+
+
+def export_ocr_rec():
+    import onnx
+
+    src = _ppocr_source("rec")
+    dst = MODELS / "ppocr5_rec_en.onnx"
+    _static(src, dst, OCR_REC_SHAPE)
+    # Keep the character list next to the model: TensorRT engines don't carry ONNX metadata.
+    chars = {p.key: p.value for p in onnx.load(src).metadata_props}["character"]
+    (MODELS / "ppocr5_rec_en.chars.txt").write_text(chars)
+
+
+EXPORTERS = {"yolo11n": export_yolo11n, "mobilenetv3l": export_mobilenetv3l,
+             **{f"ppocr5_det_{s}": (lambda s=s: export_ocr_det(s)) for s in (640, 1280, 1600, 2560)},
+             "ppocr5_rec_en": export_ocr_rec,
+             **{f"barcode_yolo11n_{s}": (lambda s=s: export_barcode(s)) for s in (640, 1280, 1600)}}
 
 
 def main():
