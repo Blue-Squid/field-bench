@@ -10,6 +10,7 @@ fieldbench has two entry points: `make` targets on the host, which sync and driv
 | `make barcodes` | Generate the synthetic barcode dataset in `data/barcodes/{train,val,test}` (needs `data/coco/val2017`). |
 | `make train-barcode` | Fine-tune YOLO11n-OBB on it (CUDA), then export `barcode_yolo11n_{640,1280,1600}.onnx`, each verified against PyTorch. |
 | `make ocr-data` | Generate the OCR test set (200 frames) and calibration set (100 frames) in `data/ocr/`. |
+| `make barber` | Convert a downloaded BarBeR dataset (`data/barber/BarBeR - Dataset/`) into a 600-photo stratified test set at `data/barber/fieldbench`; `--limit 0` on `host/make_barber.py` keeps all photos. |
 | `make sync` | rsync `fieldbench/`, `models/*.onnx` and the pipeline test and calibration images to `~/fieldbench` on the board. **`fieldbench/` is synced with `--delete`**, so edit code on the host, never on the board. |
 | `make info` | Print device facts and one telemetry sample. |
 | `make modes` | List nvpmodel power modes and whether each switches live or needs a reboot. |

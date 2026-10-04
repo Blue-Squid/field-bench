@@ -45,7 +45,7 @@ Work is organized in phases:
 **Status and known gaps.** Phase 1 and Phase 2 are complete. These are deliberately left open and are stated wherever they affect a number:
 
 - **Recognizer width buckets (OCR).** Every text line is padded to 640 px for the recognizer, a flat ~33 ms per frame. Bucketing lines by width (for example 160/320/640 px engines) would cut that.
-- **Real-photo barcode validation.** Barcode accuracy is measured on synthetic frames only. [BarBeR](https://ditto.ing.unimore.it/barber/) (8,748 annotated real images, free account) is the intended check.
+- **Real-photo barcode accuracy.** On 600 real photos from [BarBeR](https://ditto.ing.unimore.it/barber/), the synthetic-trained detector reads 60% of barcodes, against 70% for whole-frame zxing ([Phase 2, section 13](docs/results-phase2.md#13-real-photos-barber)). Fine-tuning the detector on real images is open.
 - **7W pipelines.** The 7W mode needs a reboot to enter, so pipeline power-mode results cover 15W, 25W and MAXN_SUPER. Model benchmarks include 7W.
 
 ## 2. Headline results
@@ -78,6 +78,7 @@ What the numbers say:
 4. **Calibration has to fit the model.** MinMax INT8 keeps the barcode detector within a point of FP16, but it wrecks the OCR text detector (lines read exactly: 84% → 31%). The OCR detector stays FP16.
 5. **The default DVFS governors cost these pipelines 18–45% of their latency.** The units take turns, so each one's governor keeps clocks low. Locking clocks uses the same or *less* energy per frame.
 6. **Overlapping frames fixes that without root.** Three barcode-pipeline workers run 3.3× the throughput of one (55 frames/s) at *lower* per-frame latency and 57% less energy per frame. OCR saturates the GPU at two workers, with 1.8× throughput ([section 11](docs/results-phase2.md#11-stage-overlap)).
+7. **Synthetic training doesn't transfer by itself.** On real photos (BarBeR), the detector pipeline reads 60% of barcodes against 70% for whole-frame zxing, and larger input sizes make it worse. The synthetic results measure speed and the pipeline's design, not field accuracy ([section 13](docs/results-phase2.md#13-real-photos-barber)).
 
 ## 3. Target devices
 
@@ -194,6 +195,13 @@ make live CMD=pipeline ARGS="ocr --sizes 640 1280 1600 2560 --jpeg nvjpg --prep 
 # Stage overlap: 1, 2 and 3 pipeline workers on consecutive frames
 make live CMD=pipeline ARGS="ocr --sizes 1280 --jpeg nvjpg --prep gpu --workers 1 2 3"
 
+# Pipelines across live power modes
+make live CMD=pipeline ARGS="barcode --modes detect --sizes 640 --precisions fp16 --jpeg nvjpg --prep gpu --power-modes 15W 25W MAXN_SUPER"
+
+# Real photos: download BarBeR (free account) to data/barber/, then
+make barber            # 600-photo stratified sample → data/barber/fieldbench
+make live CMD=pipeline ARGS="barcode --data data/barber/fieldbench --modes zxing detect --sizes 640 1280 --jpeg cpu --prep cpu"
+
 make report
 ```
 
@@ -251,6 +259,7 @@ Both test sets are **synthetic and generated on the host**, so every barcode str
 |---|---|---|---|
 | Barcode test | 300 × 4 MP | 677 barcodes: EAN-13, UPC-A, EAN-8, Code 128, Code 39, ITF, QR, DataMatrix, PDF417, on printed labels over COCO photos; text and stripe decoys | Rotation, perspective, uneven light, defocus/motion blur, noise, JPEG; 1D modules 1.4–4.5 px, 2D 2.5–10 px |
 | OCR test | 200 × 4 MP | 1,394 lines on product, shipping, lot/expiry, price and asset labels; sans and mono fonts, cap height 14–56 px | Tilt up to 30°, same degradations |
+| BarBeR sample | 600 real photos | 659 barcodes from 12 public datasets (Vezzali et al., ICPR 2024), annotated strings; sampled by `make barber` from your own download | Real-world: blur, close-ups, low resolution; modules from under 1 px to over 20 px |
 | Calibration | 300 + 100 | The first 300 barcode validation frames and 100 separate OCR frames; never from a test set | – |
 
 Barcode ground truth is the string zxing-cpp reads from each code's clean render, so the scoring is consistent with the decoder.
@@ -294,6 +303,7 @@ host/                    runs on the build host
   export_models.py       PyTorch / PaddleOCR → static ONNX, verified against the source model
   make_barcodes.py       synthetic barcode scenes, oriented-box labels, ground-truth strings
   make_text.py           synthetic OCR label scenes and ground-truth lines
+  make_barber.py         BarBeR real photos → a stratified barcode test set
   train_barcode.py       fine-tune YOLO11n-OBB on the barcode set
   ort_runner.py          ONNX Runtime stand-in for the TensorRT runner (host-side pipeline checks)
   report.py              results JSONL → report/index.html (template: report_template.html)
@@ -336,6 +346,7 @@ models/ engines/ data/ runs/   generated locally, not in git
 - **YOLO11 / Ultralytics: AGPL-3.0.** Fine for benchmarking. A commercial product needs an Ultralytics enterprise license or an Apache-licensed detector (RT-DETR, YOLOX, D-FINE).
 - **PP-OCRv5 (PaddleOCR): Apache-2.0.** ONNX conversions from [RapidOCR](https://github.com/RapidAI/RapidOCR).
 - **MobileNetV3 weights (torchvision): BSD-3-Clause.**
+- **BarBeR** (Vezzali, Bolelli, Santi and Grana, ICPR 2024): requires a free account at its site; no data is redistributed here, and only aggregate accuracy is reported.
 - **COCO val2017** images are used only as backgrounds in generated scenes (CC BY 4.0 annotations; images under their Flickr licenses).
 - **zxing-cpp: Apache-2.0.**
 - Reference latencies are © their publishers: Qualcomm AI Hub model cards and Zebra Technologies' AI Data Capture SDK documentation. They are quoted for comparison, and every row in `fieldbench/catalog.py` links its source.

@@ -129,6 +129,6 @@ Any folder with `images/*.jpg` and a `gt.jsonl` works with `--data`. One line pe
 - OCR `cap_px` (capital-letter height in pixels) is used only for the accuracy-by-size breakdown.
 - Extra keys (`width`, `blur`, `noise`, `module_px`, …) are ignored by the scorers and kept for analysis.
 
-For real photos, the strings must be verified by hand or by a decoder at high resolution. For public real-image sets, see BarBeR (Vezzali et al., ICPR 2024; 8,748 annotated barcode images, free account required) for barcodes. For text, use a scene-text set with line-level transcriptions, converted to the schema above.
+For real photos, the strings must be verified by hand or by a decoder at high resolution. For barcodes, `make barber` converts BarBeR (Vezzali et al., ICPR 2024; 8,748 annotated real photos, free account required) into this format; see `host/make_barber.py` for how symbologies and unknown strings are handled. For text, use a scene-text set with line-level transcriptions, converted to the schema above.
 
 The generators (`host/make_barcodes.py`, `host/make_text.py`) are also a starting point: change the symbologies, fonts, label templates, module sizes and degradations to match your site's labels and camera, and regenerate.

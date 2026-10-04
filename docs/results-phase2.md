@@ -15,6 +15,8 @@ End-to-end pipelines on 4 MP JPEG frames with exact ground truth: what a handhel
 | [9](#9-gpu-preprocessing) | GPU preprocessing |
 | [10](#10-dvfs) | DVFS |
 | [11](#11-stage-overlap) | Stage overlap |
+| [12](#12-pipelines-across-power-modes) | Pipelines across power modes |
+| [13](#13-real-photos-barber) | Real photos (BarBeR) |
 
 
 ## 1. Whole-frame zxing and tilted 1D codes
@@ -192,3 +194,41 @@ The win is CPU time, which the rest of a handheld pipeline needs. Gray decode, a
 - **NVJPG still matters at high throughput.** With three barcode workers, the hardware decoder gives 13% more throughput than CPU decode (55.2 vs 48.7 fps), because the six CPU cores are shared by decode, zxing and Python.
 
 What this means for a handheld: a scanner that processes a camera stream (continuous scanning, "pick list" or multi-barcode modes) should pipeline frames rather than run one at a time. On this board, that turns a 60 ms single-frame barcode reader into a 55 frames/s stream reader, at a lower cost per frame.
+
+## 12. Pipelines across power modes
+
+**Under the default governors, the barcode pipeline runs at the same speed and energy in every power mode, and OCR stays ahead of the TC53 even at 15W** (`--power-modes 15W 25W MAXN_SUPER`; FP16, NVJPG decode, GPU preprocessing, one worker, one session; 7W needs a reboot and is not included).
+
+| Pipeline | Mode | Total p50 | vs TC53 | Board W | mJ / frame | GPU MHz (mean) | Accuracy |
+|---|---|---|---|---|---|---|---|
+| Barcode 640 | 15W | 61.8 ms | 0.92× | 7.1 | 443 | 334 | 93.1% read |
+| | 25W | 62.5 ms | 0.91× | 7.0 | 443 | 369 | 93.1% |
+| | MAXN_SUPER | 58.5 ms | 0.97× | 7.3 | 439 | 400 | 93.1% |
+| OCR 1280 | 15W | 151.0 ms | **1.19×** | 8.9 | 1493 | 612 | 83.8% exact |
+| | 25W | 136.7 ms | 1.32× | 9.6 | 1457 | 781 | 83.8% |
+| | MAXN_SUPER | 130.1 ms | 1.38× | 10.3 | 1455 | 840 | 83.8% |
+
+- **The barcode pipeline never reaches the mode caps.** Its GPU averages 334–400 MHz in every mode, close to the 306 MHz floor and far below even the 15W cap (612 MHz), because the GPU is idle for most of each frame (section 10). The power mode only matters when something keeps the units busy. With one frame at a time, the governor decides the speed, not the mode.
+- **OCR is busy enough to feel the cap.** At 15W the GPU pins at its 612 MHz cap, and the frame takes 16% longer than at MAXN_SUPER, yet it still beats the TC53 by 1.19×.
+- **Energy per frame is flat across modes** (within 1% for barcode and 3% for OCR), as Phase 1 found for the bare networks. A lower mode caps peak power without saving energy on these workloads.
+
+## 13. Real photos (BarBeR)
+
+**On real photos, the synthetic-trained barcode detector reads fewer barcodes than whole-frame zxing, and gets worse at higher input sizes: a domain gap, not a decoder limit.**
+
+[BarBeR](https://ditto.ing.unimore.it/barber/) (Vezzali, Bolelli, Santi and Grana, "BarBeR: A Barcode Benchmarking Repository", ICPR 2024) pools 12 public datasets of real barcode photos, with an annotated polygon, symbology and encoded string for each code. `host/make_barber.py` converts it to fieldbench's format and keeps the barcodes zxing-cpp can read whose string is known. Postal codes, IATA 2-of-5, add-ons and codes marked undecodable stay in the photo unscored. It then draws a stratified sample: **600 photos with 659 barcodes**, the same share from each source dataset (EAN-13 393, Code 128 105, QR 94, UPC-A 18, Code 39 15, DataMatrix 13, PDF417 10, others 11). The photos range up to 15 MP (median 1.9 MP, 10th percentile 0.3 MP), with a median of 4.1 px per module (10th percentile 1.5). Annotated strings and zxing reads are compared in a canonical form: Code 39 `*` delimiters, GS1 `(AI)` brackets, a UPC-A leading zero and HTML escapes are normalized on both sides. MAXN_SUPER, CPU decode and CPU preprocessing (the frame size changes with every photo).
+
+| Configuration | Barcodes read | Detection recall | Boxes per photo | QR read | EAN-13 read |
+|---|---|---|---|---|---|
+| Ground-truth crops + zxing (ceiling, host) | 71.2% | – | – | 82% | 80% |
+| **zxing-cpp, whole photo** | **70.4%** | – | – | 85% | 78% |
+| Detector 640 px, FP16 | 60.4% | 83.3% | 1.00 | 50% | 70% |
+| Detector 640 px, INT8 | 60.2% | 82.4% | 0.97 | 53% | 69% |
+| Detector 1280 px, FP16 | 45.7% | 69.0% | 0.97 | 16% | 54% |
+| Detector 1600 px, FP16 | 39.3% | 60.8% | 0.85 | 17% | 44% |
+
+- **The ceiling is low because the photos are hard.** Decoding each annotated barcode from its own upright crop reads only 71.2%. Many codes have 1.1–1.5 px modules (Deal Kaist, ParcelBar) or are blurred. Whole-photo zxing is already within a point of that ceiling, because most of these photos are framed around a single code, which is the case zxing's row scanner was built for.
+- **The detector misses real codes the synthetic set never showed it.** At 640 px it finds 83% of barcodes, against 100% on the synthetic test set. Larger input sizes make it worse (recall 83% → 61%), the opposite of the synthetic results. The training scenes were 4 MP frames with small labels, while many BarBeR photos are close-ups in which one code fills the frame. Upscaling such a photo to 1280–1600 px makes the code far larger than anything in training. QR codes, usually photographed close, drop from 50% to 16–17%.
+- **INT8 costs nothing extra here** (60.2% vs 60.4% at 640 px), consistent with the synthetic results (section 6).
+- **What fixes it:** fine-tune the detector on real images (BarBeR's own training split, plus close-up and low-resolution synthetic scenes), and pick the detector input size from the photo size instead of always upscaling. A product pipeline would also fall back to whole-frame zxing when the detector finds nothing. The timing of these rows isn't compared with the TC53, because photo sizes vary by more than 20×.
+
