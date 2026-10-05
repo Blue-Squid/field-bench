@@ -1,0 +1,45 @@
+name: Submit results from your board
+description: Ran fieldbench on another Jetson (or against another handheld)? Share the numbers.
+title: "Results: <board>, JetPack <version>"
+labels: ["results"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for running fieldbench. Results from other boards are added to the README's community results, credited to you.
+  - type: input
+    id: board
+    attributes:
+      label: Board and power mode
+      placeholder: "Jetson Orin NX 16 GB, MAXN"
+    validations:
+      required: true
+  - type: input
+    id: jetpack
+    attributes:
+      label: JetPack / L4T and TensorRT versions
+      placeholder: "JetPack 6.2.1 (L4T R36.4.7), TensorRT 10.3"
+    validations:
+      required: true
+  - type: textarea
+    id: info
+    attributes:
+      label: Output of `make info`
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: commands
+    attributes:
+      label: Commands you ran
+      description: The `make live …` lines, so others can reproduce the rows.
+      render: bash
+    validations:
+      required: true
+  - type: textarea
+    id: results
+    attributes:
+      label: Result files
+      description: Attach the `results/*.jsonl` files (drag and drop), plus any notes on what differed from the reference setup.
+    validations:
+      required: true

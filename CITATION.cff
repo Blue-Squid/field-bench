@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: "If you use fieldbench or its results, please cite it as below."
+title: "fieldbench: handheld-class computer-vision benchmarks for NVIDIA Jetson"
+abstract: "End-to-end barcode, OCR and product-recognition pipelines on the Jetson Orin Nano Super, timed per stage with board power and energy, and compared with published Qualcomm QCS6490 / Zebra TC53 figures."
+authors:
+  - family-names: Boppana
+    given-names: Siddhartha
+version: "1.0.0"
+date-released: "2026-10-05"
+license: MIT
+repository-code: "https://github.com/Blue-Squid/field-bench"
+url: "https://blue-squid.github.io/field-bench/report/"
+keywords: [jetson, tensorrt, edge-ai, benchmark, barcode, ocr, int8]

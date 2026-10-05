@@ -6,7 +6,7 @@ fieldbench measures how an embedded GPU board handles the vision workloads of fr
 
 The reference platform is the **NVIDIA Jetson Orin Nano Super (8 GB)**. The reference handheld is the **Zebra TC53/TC58 class** on the **Qualcomm QCS6490** SoC. Both are swappable: [Adapting fieldbench](docs/adapting.md) explains how to benchmark another Jetson, or to compare against your own handheld.
 
-Author: **Siddhartha Boppana**
+Author: **Siddhartha Boppana** · License: [MIT](LICENSE) · **[Interactive report](https://blue-squid.github.io/field-bench/report/)** (every chart and result row, in the browser)
 
 ---
 
@@ -404,6 +404,7 @@ models/ engines/ data/ runs/   generated locally, not in git
 
 ## 12. Licenses and attribution
 
+- **fieldbench's own code: [MIT](LICENSE).** The models and datasets it uses keep their own licenses, listed below. If you use the results, `CITATION.cff` has the citation.
 - **YOLO11 / Ultralytics: AGPL-3.0.** Fine for benchmarking. A commercial product needs an Ultralytics enterprise license or an Apache-licensed detector (RT-DETR, YOLOX, D-FINE).
 - **PP-OCRv5 (PaddleOCR): Apache-2.0.** ONNX conversions from [RapidOCR](https://github.com/RapidAI/RapidOCR).
 - **MobileNetV3 weights (torchvision): BSD-3-Clause.**
@@ -424,4 +425,4 @@ fieldbench set out to answer one question: can a $249 Jetson board do the vision
 - **The network is rarely the bottleneck.** JPEG decode, resizing and the DVFS governors moved the numbers more than any model change. Hardware decode, a bit-exact CUDA preprocessing kernel and overlapping frames across workers recovered most of it.
 - **Measure correctness, not just speed.** Every configuration is scored on the full test set before it is timed. That check caught an export bug that silently corrupted the OCR recognizer, an INT8 calibration that wrecked text detection, and a detector that reads synthetic barcodes well and real photos poorly.
 
-The open ends (section 1) are all reproducible from this repository: a real-photo detector, recognizer width buckets, and the root cause of the two-worker GPU hang. If you take one of them on, or run fieldbench on another Jetson or against another handheld, issues and pull requests are welcome.
+The open ends (section 1) are all reproducible from this repository: a real-photo detector, recognizer width buckets, and the root cause of the two-worker GPU hang. The project is in maintenance mode: no new features are planned, but result submissions and fixes are welcome. Each open end has a `help wanted` issue with the commands to start from. If you run fieldbench on another Jetson or against another handheld, open a [results submission](https://github.com/Blue-Squid/field-bench/issues/new?template=submit-results.yml) and it will be added here, credited to you. For questions, use [Discussions](https://github.com/Blue-Squid/field-bench/discussions).

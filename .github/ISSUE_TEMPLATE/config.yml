@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and setup help
+    url: https://github.com/Blue-Squid/field-bench/discussions
+    about: Running fieldbench on your board, interpreting results, ideas.
