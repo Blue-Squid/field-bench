@@ -3,6 +3,10 @@
   jpeg_decode -> det_pre (resize + normalize) -> det_infer -> det_post (threshold, contours, boxes)
   -> rec_pre (deskewed crops, 48 px high) -> rec_infer (batches of 8) -> rec_post (CTC greedy decode)
 
+Recognizer width buckets (optional): with engines at several widths (e.g. 320, 480, 640), a
+frame's lines are sorted widest first and cut into batches of 8; each batch runs on the
+narrowest engine that holds its widest line instead of padding every line to 640 px.
+
 Postprocessing follows PaddleOCR's DBPostProcess and CTCLabelDecode with their default
 thresholds; "unclip" is done analytically on the box rectangle instead of with pyclipper.
 """
@@ -96,6 +100,23 @@ def crop_line(img, rect):
     if h / w >= 1.5:
         crop = np.rot90(crop)
     return crop
+
+
+def rec_width(crop, H=48, W=640):
+    """Width a crop resizes to at height H (capped at W), as rec_preprocess_into computes it."""
+    h, w = crop.shape[:2]
+    return min(W, max(1, int(np.ceil(H * w / h))))
+
+
+def rec_batches(widths, B, buckets):
+    """Plan recognizer batches: [(bucket width, [line indices])], widest lines first, B per batch,
+    each batch on the narrowest bucket that holds its widest line."""
+    order = sorted(range(len(widths)), key=lambda k: -widths[k])
+    plan = []
+    for start in range(0, len(order), B):
+        chunk = order[start:start + B]
+        plan.append((next(b for b in buckets if b >= widths[chunk[0]]), chunk))
+    return plan
 
 
 def rec_preprocess_into(crop, out_slot):
@@ -211,11 +232,14 @@ class OcrPipeline:
     stages = ["jpeg_decode", "det_pre", "det_infer", "det_post", "rec_pre", "rec_infer", "rec_post"]
 
     def __init__(self, det_runner, rec_runner, charset, det_name, det_size, precision, rec_precision,
-                 jpeg=None, jpeg_name="cpu", prep="cpu"):
+                 jpeg=None, jpeg_name="cpu", prep="cpu", rec_narrow=()):
+        """rec_runner: the full-width (640) recognizer; rec_narrow: optional narrower ones (width buckets)."""
         self.name = "ocr"
         self.det, self.rec = det_runner, rec_runner
         self.det_in, self.det_out = det_runner.inputs[0].host, det_runner.outputs[0].host
         self.rec_in, self.rec_out = rec_runner.inputs[0].host, rec_runner.outputs[0].host
+        self.recs = {r.inputs[0].host.shape[-1]: r for r in (*rec_narrow, rec_runner)}  # width -> runner
+        self.buckets = sorted(self.recs)
         self.charset = charset
         self.jpeg = jpeg or CpuJpeg()
         # prep="gpu": det_pre runs as one CUDA kernel writing the detector's input on the GPU
@@ -228,14 +252,16 @@ class OcrPipeline:
                         rec_precision=rec_precision, jpeg_name=jpeg_name, prep=prep)
         self.config = {"mode": "ppocr5", "jpeg": jpeg_name, "prep": prep, "detector": det_name, "input_size": det_size, "precision": precision,
                        "rec_precision": rec_precision, "rec_batch": self.rec_in.shape[0],
-                       "rec_width": self.rec_in.shape[-1]}
+                       "rec_width": self.rec_in.shape[-1], "rec_buckets": self.buckets}
 
     def clone(self):
         """An independent copy (own engine contexts, streams, buffers, decoder) for another worker."""
         from .runner import TrtRunner
 
         c = OcrPipeline(TrtRunner(self.det.engine_file), TrtRunner(self.rec.engine_file),
-                        jpeg=make_decoder(self.config["jpeg"]), **self._kw)
+                        jpeg=make_decoder(self.config["jpeg"]),
+                        rec_narrow=[TrtRunner(r.engine_file) for w, r in self.recs.items() if r is not self.rec],
+                        **self._kw)
         c.config = dict(self.config)
         return c
 
@@ -260,25 +286,28 @@ class OcrPipeline:
         times["det_infer_gpu"] = g
         with clock("det_post"):
             rects = det_postprocess(self.det_out[0, 0], scale)
-        texts = []
+        texts = [None] * len(rects)  # stays None for crops too thin to cut out
         B = self.rec_in.shape[0]
         times["rec_batches"] = 0
-        for start in range(0, len(rects), B):
-            chunk = rects[start:start + B]
+        with clock("rec_pre"):
+            crops = [crop_line(img, rect) for rect in rects]
+            idx = [k for k, c in enumerate(crops) if c is not None]
+            plan = rec_batches([rec_width(crops[k]) for k in idx], B, self.buckets)
+        for width, chunk in plan:
+            rec = self.recs[width]
+            rec_in, rec_out = rec.inputs[0].host, rec.outputs[0].host
             with clock("rec_pre"):
-                valid = []
-                for k, rect in enumerate(chunk):
-                    crop = crop_line(img, rect)
-                    if crop is not None:
-                        rec_preprocess_into(crop, self.rec_in[k])
-                    valid.append(crop is not None)
-                self.rec_in[len(chunk):] = 0
+                for slot, j in enumerate(chunk):
+                    rec_preprocess_into(crops[idx[j]], rec_in[slot])
+                rec_in[len(chunk):] = 0
             with clock("rec_infer"):
-                g, _ = self.rec.infer()
+                g, _ = rec.infer()
             times["rec_infer_gpu"] = times.get("rec_infer_gpu", 0.0) + g
             times["rec_batches"] += 1
+            times[f"rec_w{width}"] = times.get(f"rec_w{width}", 0) + 1
             with clock("rec_post"):
-                texts += [ctc_decode(self.rec_out[k], self.charset) if ok else None for k, ok in enumerate(valid)]
+                for slot, j in enumerate(chunk):
+                    texts[idx[j]] = ctc_decode(rec_out[slot], self.charset)
         return {"rects": rects, "texts": texts}
 
     def score(self, frames, outputs):
@@ -288,7 +317,8 @@ class OcrPipeline:
         if self.gprep:
             self.gprep.close()
         self.det.close()
-        self.rec.close()
+        for r in self.recs.values():
+            r.close()
         self.jpeg.close()
 
 

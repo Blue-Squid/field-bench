@@ -10,7 +10,10 @@ from that JSON, so re-running this script after new results re-tells the story.
 Row selection
 -------------
 * Rows labelled "smoke" are skipped, and so is anything outside the top level of
-  results/ (results/superseded/ is not globbed).
+  results/ (results/superseded/ is not globbed). So are the soak-hang diagnostics
+  (labels "hang-*", and watchdog rows of kind "pipeline-stalled"): they are quoted in
+  docs/results-phase3.md section 3, and their 10-minute rows would otherwise replace
+  the Phase 3 chapter's rows under latest-row-wins.
 * Phase 3 pipelines ("assistant", "product", PHASE3_PIPELINES) and rows measured on
   the BarBeR real-photo set (data "data/barber/...") only feed their own chapters;
   the Phase 1-2 chapters see neither (phase2_rows()).
@@ -78,7 +81,8 @@ def read_rows(paths):
             if not line.strip():
                 continue
             r = json.loads(line)
-            if r.get("label") == "smoke":
+            if r.get("label") == "smoke" or (r.get("label") or "").startswith("hang-") \
+                    or r.get("kind") == "pipeline-stalled":
                 continue
             if r.get("kind") == "pipeline":
                 # Normalize switches that older rows omit or store as null.

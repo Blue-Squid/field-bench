@@ -12,7 +12,7 @@ fieldbench has two entry points: `make` targets on the host, which sync and driv
 | `make ocr-data` | Generate the OCR test set (200 frames) and calibration set (100 frames) in `data/ocr/`. |
 | `make barber` | Convert a downloaded BarBeR dataset (`data/barber/BarBeR - Dataset/`) into a 600-photo stratified test set at `data/barber/fieldbench`; `--limit 0` on `host/make_barber.py` keeps all photos. |
 | `make products` | Download the Grocery Store Dataset and lay it out as `data/products/{gallery,test}` (images + `gt.jsonl`). |
-| `make sync` | rsync `fieldbench/`, `models/*.onnx` and the pipeline test and calibration images to `~/fieldbench` on the board. **`fieldbench/` is synced with `--delete`**, so edit code on the host, never on the board. |
+| `make sync` | rsync `fieldbench/`, `scripts/`, `models/*.onnx` and the pipeline test and calibration images to `~/fieldbench` on the board. **`fieldbench/` is synced with `--delete`**, so edit code on the host, never on the board. |
 | `make info` | Print device facts and one telemetry sample. |
 | `make modes` | List nvpmodel power modes and whether each switches live or needs a reboot. |
 | `make set-mode MODE=<name> [REBOOT=1]` | Switch the power mode through jtop. Modes that need a reboot (7W on the Orin Nano) refuse without `REBOOT=1`. |
@@ -68,7 +68,11 @@ Runs end-to-end pipelines on the test set. Each combination of the list-valued f
 | `--power-modes M …` | current only | Sweep these nvpmodel modes (lowest budget first), rebuilding the pipelines in each and restoring the original mode at the end. Reboot-only modes (7W) are rejected. |
 | `--settle S` | 10 | Seconds to wait after a mode switch. |
 | `--workers N …` | `1` | Pipeline copies running concurrently on consecutive frames (stage overlap). A list sweeps worker counts, e.g. `1 2 3`. |
-| `--series S` | 0 (off) | Also store per-window throughput, latency, power, clocks and temperatures every S seconds (`row["series"]`), for soak runs. |
+| `--series S` | 0 (off) | Also store per-window throughput, latency, power, clocks, temperatures, available memory and over-current alarms every S seconds (`row["series"]`), for soak runs. |
+| `--stall-s S` | 120 | Watchdog: if any worker finishes no frame for S seconds, write a partial row (`kind: "pipeline-stalled"`) with the series so far, every thread's stack and kernel wait channel, and interrupt-counter snapshots, then exit with code 3. `0` turns it off. |
+| `--serialize {none,rec,all}` | `none` | Diagnostic: run the OCR recognizer's inferences (`rec`) or every TensorRT inference (`all`) one at a time under a process-wide lock. Stored as `row["serialize"]`. |
+| `--rec-buckets W[,W…] …` | `640` | OCR: recognizer widths. `320,480,640` sorts a frame's lines widest first and runs each batch of 8 on the narrowest engine that holds it; a list sweeps (`640 320,480,640`). Needs `ppocr5_rec_en_w320/w480.onnx`. |
+| `--bc-model M` | `barcode_yolo11n` | Barcode and assistant: detector weights. `barcode_real_yolo11n` is the real-photo fine-tune (README section 6.4). |
 | `--data DIR` | per workload | Test set folder containing `gt.jsonl` and `images/`. |
 | `--duration S` / `--warmup S` / `--min-frames N` / `--cooldown S` | 20 / 3 / 100 / 5 | As for `bench`. |
 | `--label L`, `--out PATH` | – | As for `bench`. |
@@ -112,6 +116,11 @@ Assistant rows report stages `jpeg_decode`, `barcode` and `ocr` (branch wall tim
 | `python -m fieldbench.gpuprep` | Jetson | Runs the CPU preprocessing and the CUDA kernel on 20 real frames per workload at every size. Prints the largest difference in uint8 levels, the share of values that differ, and the cost of each path. |
 | `python host/export_models.py [names…] [--force]` | Host | Export the named models (default: all). The `ppocr5_*` models download the RapidOCR ONNX once into `models/_ppocr/`. |
 | `python host/report.py [files…] [-o out.html]` | Host | Render a report from any subset of result files. |
+| `python host/make_barber.py --yolo DIR` | Host | Write a YOLO-OBB training set from the BarBeR photos outside the test sample (near-duplicates excluded), plus `DIR/mix.yaml`, which mixes it with the synthetic set. |
+| `python host/train_barcode.py [--data Y] [--init W] [--name N]` | Host | Train the barcode detector; the defaults reproduce the synthetic-trained model. `--name barcode_real` writes `models/_ultralytics/barcode_real_yolo11n.pt`. |
+| `python host/eval_barber.py --models M … --sizes S …` | Host | Detector pipeline accuracy on the BarBeR sample with ONNX Runtime (CPU), broken down by photo size, next to whole-photo zxing. |
+| `python host/check_rec_widths.py [--size S] [--buckets W …]` | Host | Whether padding text lines to a narrower recognizer width changes what PP-OCRv5 reads (ONNX Runtime). |
+| `bash scripts/hang_matrix.sh [A B C D E]` | Jetson (in tmux) | The five controlled 10-minute runs behind the two-worker hang analysis ([Phase 3, section 3](results-phase3.md#3-sustained-load-thermal-soak)). Summary in `logs/hang-matrix.log`. |
 | `python host/make_barcodes.py`, `python host/make_text.py` | Host | Dataset generators. `--train/--val/--test` (barcodes) or `--test/--calib` (OCR) set the frame counts, `--workers` the parallel processes, `--out` the folder. |
 
 ## 8. Engine files

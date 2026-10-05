@@ -24,6 +24,7 @@ Author: **Siddhartha Boppana**
 10. [Repository layout](#10-repository-layout)
 11. [Documentation](#11-documentation)
 12. [Licenses and attribution](#12-licenses-and-attribution)
+13. [Closing remarks](#13-closing-remarks)
 
 ---
 
@@ -43,12 +44,13 @@ Work is organized in phases:
 - **Phase 2: handheld pipelines.** Barcode reading (oriented detector + deskewed crops + zxing-cpp) and OCR (PP-OCRv5 mobile) on synthetic 4 MP frames with exact ground truth. This phase also covers calibrated INT8, NVJPG hardware decode, a bit-exact CUDA preprocessing kernel, DVFS effects, and stage overlap.
 - **Phase 3: the handheld assistant.** Barcode and OCR models on every frame, sequential and concurrent; product recognition by embedding + gallery lookup on real store photos; and a sustained-load soak.
 
-**Status and known gaps.** Phase 1 and Phase 2 are complete. These are deliberately left open and are stated wherever they affect a number:
+**Status: complete and closed (October 2026).** All three phases are measured and written up, and every number in this README comes from `results/`. The project is not under active development. [Section 13](#13-closing-remarks) summarizes what was learned and what is left open. These gaps are stated wherever they affect a number:
 
-- **Recognizer width buckets (OCR).** Every text line is padded to 640 px for the recognizer, a flat ~33 ms per frame. Bucketing lines by width (for example 160/320/640 px engines) would cut that.
-- **Real-photo barcode accuracy.** On 600 real photos from [BarBeR](https://ditto.ing.unimore.it/barber/), the synthetic-trained detector reads 60% of barcodes, against 70% for whole-frame zxing ([Phase 2, section 13](docs/results-phase2.md#13-real-photos-barber)). Fine-tuning the detector on real images is open.
+- **Real-photo barcode accuracy.** On 600 real photos from [BarBeR](https://ditto.ing.unimore.it/barber/), the synthetic-trained detector reads 60% of barcodes, against 70% for whole-frame zxing ([Phase 2, section 13](docs/results-phase2.md#13-real-photos-barber)). The training path for a detector fine-tuned on real photos is in the repository (section 6.4), but that detector has not been measured.
+- **Recognizer width buckets (OCR).** Every text line is padded to 640 px for the recognizer, a flat ~33 ms per frame. The pipeline supports 320/480/640 px buckets (`--rec-buckets`), but they have not been timed.
+- **The two-worker GPU hang.** With two workers and concurrent branches at MAXN_SUPER, the GPU stalled four times, after 2 to 40 minutes. A stall watchdog now records each hang, and a lock around the recognizer is a candidate fix, but neither the cause nor the fix is confirmed ([Phase 3, section 3](docs/results-phase3.md#3-sustained-load-thermal-soak)). One worker runs indefinitely.
 - **7W pipelines.** The 7W mode needs a reboot to enter, so pipeline power-mode results cover 15W, 25W and MAXN_SUPER. Model benchmarks include 7W.
-- **Phase 3:** two 20-minute soaks at about 16 W (2 workers, at the over-current limit) hung after about 20 minutes, with and without NVJPG. The cause is open ([Phase 3, section 3](docs/results-phase3.md#3-sustained-load-thermal-soak)). Product recognition has no shelf localizer (the test photos are product-centred), and concurrent model branches don't use CUDA stream priorities yet.
+- **Phase 3 extras:** product recognition has no shelf localizer (the test photos are product-centred), and concurrent model branches don't use CUDA stream priorities.
 
 ## 2. Headline results
 
@@ -230,12 +232,37 @@ make live CMD=pipeline ARGS="assistant --jpeg nvjpg --prep gpu --order sequentia
 # Product recognition: embedding + class-centroid lookup against the gallery
 make live CMD=pipeline ARGS="product --workers 1 2 3"
 
-# Soak with throughput, power, clocks and temperatures every 30 s. One worker keeps the board
-# below its over-current limit; 2-worker soaks at ~16 W hung after ~20 min (docs/results-phase3.md, section 3)
+# Soak with throughput, power, clocks and temperatures every 30 s. One worker runs indefinitely;
+# two workers with concurrent branches can hang (docs/results-phase3.md, section 3)
 make live CMD=pipeline ARGS="assistant --jpeg cpu --prep gpu --order concurrent --workers 1 --duration 600 --series 30 --cooldown 0 --label soak"
+
+# The hang matrix behind Phase 3, section 3 (five 10-minute runs, about an hour; watchdog armed)
+make sync && ssh jetson 'cd fieldbench && tmux new -d -s fieldbench "bash scripts/hang_matrix.sh; read"' && make attach
 ```
 
-### 6.4 Rules for clean measurements
+### 6.4 Open experiments (code in place, not yet measured)
+
+These follow-ups are wired into the code but have no published results.
+
+```bash
+# Barcode detector fine-tuned on real photos: BarBeR's photos outside the 600-photo test sample
+# (near-duplicates of test photos excluded) plus the synthetic set, starting from the synthetic weights
+.venv/bin/python host/make_barber.py --yolo data/barber/yolo        # also writes data/barber/yolo/mix.yaml
+.venv/bin/python host/train_barcode.py --data data/barber/yolo/mix.yaml \
+    --init models/_ultralytics/barcode_yolo11n.pt --name barcode_real --epochs 40
+.venv/bin/python host/export_models.py barcode_real_yolo11n_640 barcode_real_yolo11n_1280
+.venv/bin/python host/eval_barber.py --models barcode_yolo11n barcode_real_yolo11n --sizes 640 1280   # host, ONNX Runtime
+make live CMD=pipeline ARGS="barcode --bc-model barcode_real_yolo11n --data data/barber/fieldbench --modes detect --sizes 640 1280 --jpeg cpu --prep cpu"
+
+# OCR recognizer width buckets: check that narrower padding doesn't change the reads, then time it
+.venv/bin/python host/check_rec_widths.py --size 1280
+.venv/bin/python host/export_models.py ppocr5_rec_en_w320 ppocr5_rec_en_w480
+make live CMD=pipeline ARGS="ocr --sizes 1280 --jpeg nvjpg --prep gpu --rec-buckets 640 320,480,640"
+```
+
+The width-bucket and fine-tuned engines are built on first use (FP16 about 10–30 min each).
+
+### 6.5 Rules for clean measurements
 
 - **One benchmark at a time** on the board, with nothing heavy alongside it. `make live` refuses to start while a session is already running.
 - **Never lock or unlock clocks during a sweep.** `jetson_clocks` mid-run makes the rows on either side incomparable. Lock or restore only between runs:
@@ -332,7 +359,9 @@ host/                    runs on the build host
   make_text.py           synthetic OCR label scenes and ground-truth lines
   make_products.py       Grocery Store Dataset → product gallery and test sets
   make_barber.py         BarBeR real photos → a stratified barcode test set
-  train_barcode.py       fine-tune YOLO11n-OBB on the barcode set
+  train_barcode.py       fine-tune YOLO11n-OBB on the barcode set (or the real + synthetic mix)
+  eval_barber.py         detector accuracy on BarBeR by photo size, on the host (ONNX Runtime)
+  check_rec_widths.py    does a narrower recognizer width change the reads? (width buckets)
   ort_runner.py          ONNX Runtime stand-in for the TensorRT runner (host-side pipeline checks)
   report.py              results JSONL → report/index.html (template: report_template.html)
 fieldbench/              runs on the Jetson
@@ -352,6 +381,7 @@ fieldbench/              runs on the Jetson
   telemetry.py           sysfs power/thermal/clock sampler, EMC clock via jtop
   power.py               nvpmodel power modes via the jtop service
   stats.py               latency percentiles
+scripts/hang_matrix.sh   the five controlled runs behind the two-worker hang analysis (run on the Jetson)
 docs/                    manuals and results (see below)
 results/  report/        measurements from the reference board
 models/ engines/ data/ runs/   generated locally, not in git
@@ -384,3 +414,14 @@ models/ engines/ data/ runs/   generated locally, not in git
 - Reference latencies are © their publishers: Qualcomm AI Hub model cards and Zebra Technologies' AI Data Capture SDK documentation. They are quoted for comparison, and every row in `fieldbench/catalog.py` links its source.
 
 Zebra, TC53, TC58, Qualcomm, Snapdragon, NVIDIA and Jetson are trademarks of their respective owners. This project is independent and not affiliated with any of them.
+
+## 13. Closing remarks
+
+fieldbench set out to answer one question: can a $249 Jetson board do the vision work of a frontline handheld as well as the Qualcomm SoC inside one? Three phases later, the answer is **yes on latency, as long as the board gets enough power**.
+
+- **Latency:** with calibrated INT8 at 25 W or more, the Orin Nano Super matches or beats the QCS6490 NPU on bare networks. At 15 W it runs at 0.7–0.8× the NPU. On full pipelines it matches the Zebra TC53's published times at 640 px and beats them by up to 2.4× at larger input sizes. It also runs barcode and OCR on every frame 1.74× faster than a TC53 doing the two jobs in turn.
+- **Energy:** precision is the lever (2–3× per frame), not the power mode (under ±7% between 15 W and MAXN_SUPER). These are whole-board figures. No handheld publishes comparable energy per frame, so energy isn't compared with the TC53.
+- **The network is rarely the bottleneck.** JPEG decode, resizing and the DVFS governors moved the numbers more than any model change. Hardware decode, a bit-exact CUDA preprocessing kernel and overlapping frames across workers recovered most of it.
+- **Measure correctness, not just speed.** Every configuration is scored on the full test set before it is timed. That check caught an export bug that silently corrupted the OCR recognizer, an INT8 calibration that wrecked text detection, and a detector that reads synthetic barcodes well and real photos poorly.
+
+The open ends (section 1) are all reproducible from this repository: a real-photo detector, recognizer width buckets, and the root cause of the two-worker GPU hang. If you take one of them on, or run fieldbench on another Jetson or against another handheld, issues and pull requests are welcome.

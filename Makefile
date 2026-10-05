@@ -26,9 +26,10 @@ train-barcode:     ## fine-tune YOLO11n on it (CUDA), then export at 640/1280/16
 	.venv/bin/python host/train_barcode.py
 	.venv/bin/python host/export_models.py barcode_yolo11n_640 barcode_yolo11n_1280 barcode_yolo11n_1600 --force
 
-sync:              ## push code, ONNX and pipeline test/calibration images to the Jetson
+sync:              ## push code, scripts, ONNX and pipeline test/calibration images to the Jetson
 	rsync -az --delete --exclude __pycache__ fieldbench/ $(JETSON):$(REMOTE_DIR)/fieldbench/
 	rsync -az --exclude _ultralytics --exclude _ppocr models/ $(JETSON):$(REMOTE_DIR)/models/
+	rsync -az scripts/ $(JETSON):$(REMOTE_DIR)/scripts/
 	@if [ -d data/barcodes/test ]; then \
 	  rsync -az --mkpath --relative data/barcodes/./test data/barcodes/./val/images $(JETSON):$(REMOTE_DIR)/data/barcodes/; fi
 	@if [ -d data/ocr/test ]; then rsync -az --mkpath data/ocr/test data/ocr/calib $(JETSON):$(REMOTE_DIR)/data/ocr/; fi

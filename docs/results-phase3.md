@@ -45,22 +45,36 @@ Accuracy is the same in all four rows: 93.8% of barcodes read with 1 misread, an
 
 ## 3. Sustained load (thermal soak)
 
-**Two 20-minute soaks at the board's power limit both hung after about 20 minutes, with the same signature; the JPEG decoder is not the cause.** Configuration: assistant, concurrent branches, 2 workers, GPU preprocessing, about 16 W board power, where the SoC's over-current alarms fire by the thousands (section 1).
+**Two workers with concurrent branches can hang the GPU at MAXN_SUPER. The cause is not identified; it is not NVJPG and not the over-current limit.** Configuration: assistant, concurrent branches, 2 workers, GPU preprocessing, MAXN_SUPER.
 
-| Run | JPEG decode | Stalled after | Rows written |
-|---|---|---|---|
-| 1 | NVJPG | ≤ 25 min (found stalled at 25 min) | none |
-| 2 | CPU (`cv2.imdecode`) | 19–20 min (stall watcher, 30 s resolution) | none |
+The first two soaks (NVJPG, then CPU decode) stopped producing frames after about 20 minutes and wrote no rows. `pipeline` now has a stall watchdog (`--stall-s`). When a worker finishes no frame for that long, the watchdog writes a partial row with the telemetry series so far, every thread's Python stack and kernel wait channel, and two snapshots of the host1x/GPU interrupt counters. Then it exits with code 3. With the watchdog armed, the same configuration hung twice more:
 
-The signature was the same both times:
+| Run | JPEG decode | Hung after (timed loop) | Frames before | Last 30-s window |
+|---|---|---|---|---|
+| 1 | NVJPG | ≤ 25 min | – (no watchdog yet) | – |
+| 2 | CPU | 19–20 min | – (no watchdog yet) | – |
+| 3 (`hang-repro`) | CPU | about 40 min | 15,346 | – |
+| 4 (`hang-repro2`) | CPU | about 2.4 min | 2,296 | 11.5 W, 0 over-current alarms, Tj 80 °C, GPU 1020 MHz, 99.9% load |
 
-- One thread was blocked in the kernel in `dma_fence_default_wait`, and the others sat in futex waits.
-- The process used almost no CPU.
-- GPU load read 99.9% at the 306 MHz floor clock.
-- No nvgpu errors were in the kernel log.
-- Killing the process released the GPU immediately, with no reboot needed.
+The signature was the same every time:
 
-20-second runs of the same configuration complete normally (section 1), and 20-minute runs at lower power never got the chance to fail. The common factor is sustained operation at the power limit with four TensorRT contexts and several CUDA streams in flight. Run 2 rules out the NVJPG path. A GPU work item that never completes under prolonged over-current throttling would produce exactly this. The cause is not identified. To pin it down, the runner needs a stall watchdog that writes a partial row with the time series so far (rows are currently written only at the end of a configuration), then reruns at 2 workers with locked clocks, and with one worker.
+- A worker is blocked in `cudaStreamSynchronize` after a TensorRT inference, and its kernel wait channel is `dma_fence_default_wait`. The other threads sit in futex or poll waits.
+- The host1x syncpoint interrupt counters keep advancing, so the host1x interrupt freeze reported on JetPack 6.2.1 is not the cause.
+- The process uses almost no CPU, and killing it releases the GPU with no reboot needed.
+
+To narrow it down, five 10-minute runs each changed one thing (`scripts/hang_matrix.sh`, CPU decode, GPU preprocessing, 2 workers, `--stall-s 60`):
+
+| Run | Change | Result | Throughput | p50 | Over-current alarms |
+|---|---|---|---|---|---|
+| A | 15W power mode | completed | 9.7 frames/s | 195 ms | 0 |
+| B | OCR pipeline alone (1280) | completed | 13.1 | 146 ms | 7,846 |
+| C | OCR recognizer inferences under one process-wide lock (`--serialize rec`) | completed | 13.7 | 138 ms | 40,274 |
+| D | every TensorRT inference under the lock (`--serialize all`) | completed | 13.9 | 136 ms | 32,266 |
+| E | branches in turn (`--order sequential`) | completed | 12.1 | 158 ms | 11,093 |
+
+- **Over-current throttling is not required.** Run 4 hung at 11.5 W with no alarms in its last windows, while C and D threw tens of thousands of alarms and completed.
+- **Serializing the recognizer costs nothing.** C's p50 (138 ms) and throughput are as good as those of the unlocked runs, so a recognizer lock is a cheap mitigation if it holds.
+- **The matrix doesn't prove a fix.** The unlocked runs hung anywhere from 2.4 to 40 minutes in, so a single clean 10-minute run is weak evidence. Confirming C needs repeated soaks of an hour or more, and naming the kernel that never completes needs an Nsight Systems trace of a hang. Both are left open.
 
 **Below the power limit, sustained load is completely stable.** A 10-minute soak with one worker (assistant, concurrent branches, CPU JPEG decode, GPU preprocessing) completed normally:
 
@@ -77,4 +91,4 @@ The signature was the same both times:
 
 - **No drift.** Throughput, latency, power and temperature stay flat from the first window to the last. The temperature never moves by more than 1 °C, so the fan and heatsink hold this load indefinitely. The last window covers only the moments after the 600 s mark and is left out.
 - **Latency is higher than in section 1** (172 vs 136 ms p50) because this run decodes JPEGs on the CPU (about 40 ms, against about 11 ms of CPU time for NVJPG) and the GPU runs at a lower clock under the default governors. It's a different session, so compare only within each table.
-- **The safe envelope:** one assistant worker at about 8.5 W runs indefinitely. Two workers at about 16 W hit the over-current limit and hung twice after about 20 minutes. A deployment on this module should cap sustained load below the over-current threshold, for example with fewer workers or the 15W mode, until the hang is understood.
+- **The safe envelope:** one assistant worker at about 8.5 W runs indefinitely. Two workers with concurrent branches at MAXN_SUPER hung four times, after 2 to 40 minutes. Until the hang is understood, a deployment on this module should run one worker, or serialize the TensorRT calls, and use a watchdog.

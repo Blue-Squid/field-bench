@@ -1,5 +1,6 @@
 """Minimal TensorRT executor with per-inference GPU (CUDA event) and end-to-end timing."""
 import ctypes
+import threading
 import time
 
 import numpy as np
@@ -33,6 +34,11 @@ class Tensor:
 
 
 class TrtRunner:
+    # Diagnostic (--serialize): engines whose file name contains one of these strings run their
+    # inferences one at a time process-wide, under one lock, instead of overlapping on the GPU.
+    serialize = ()
+    _serial_lock = threading.Lock()
+
     def __init__(self, engine_file):
         self.engine_file = engine_file  # clones (pipeline workers) deserialize their own copy
         self.logger = trt.Logger(trt.Logger.WARNING)
@@ -76,6 +82,12 @@ class TrtRunner:
         upload=False skips the host->device input copies, for inputs already written on the
         GPU (gpuprep).
         """
+        if any(k in str(self.engine_file) for k in TrtRunner.serialize):
+            with TrtRunner._serial_lock:
+                return self._infer(upload)
+        return self._infer(upload)
+
+    def _infer(self, upload):
         h0 = time.perf_counter()
         for t in self.inputs if upload else ():
             _ck(cudart.cudaMemcpyAsync(t.device, t.host_ptr, t.nbytes, H2D, self.stream))

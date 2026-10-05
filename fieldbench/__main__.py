@@ -181,7 +181,7 @@ def _barcode_pipelines(args):
                 yield barcode.ZxingPipeline(jpeg=make_decoder(jpeg), jpeg_name=jpeg)
             continue
         for size in args.sizes:
-            name = f"barcode_yolo11n_{size}"
+            name = f"{args.bc_model}_{size}"
             if name not in MODELS:
                 print(f"> no barcode detector at {size}; skipping")
                 continue
@@ -205,6 +205,10 @@ def _ocr_pipelines(args):
     # The recognizer stays FP16: INT8 there would need calibration on line crops, and it is
     # not the stage that grows with input size.
     rec_path, secs = trt_engine.build(MODELS["ppocr5_rec_en"]["onnx"], "fp16")
+    narrow = {}  # width bucket -> engine path; built on first use (several minutes each)
+    for w in sorted({w for b in args.rec_buckets for w in b.split(",") if w and int(w) != 640}, key=int):
+        print(f"> ocr rec width bucket {w} [fp16]")
+        narrow[int(w)], _ = trt_engine.build(MODELS[f"ppocr5_rec_en_w{w}"]["onnx"], "fp16")
     charset = ocr.load_charset("models/ppocr5_rec_en.chars.txt")
     for size in args.sizes:
         name = f"ppocr5_det_{size}"
@@ -212,9 +216,11 @@ def _ocr_pipelines(args):
             print(f"> ocr det {size} [{precision}] + rec [fp16]")
             path = _engine(MODELS[name]["onnx"], precision, size, args, ocr.det_preprocess_into, "ocr")
             if path:
-                for jpeg, prep in itertools.product(args.jpeg, args.prep):
+                for jpeg, prep, buckets in itertools.product(args.jpeg, args.prep, args.rec_buckets):
+                    widths = [int(w) for w in buckets.split(",") if int(w) != 640]
                     pipe = ocr.OcrPipeline(TrtRunner(path), TrtRunner(rec_path), charset, name, size, precision,
-                                           "fp16", jpeg=make_decoder(jpeg), jpeg_name=jpeg, prep=prep)
+                                           "fp16", jpeg=make_decoder(jpeg), jpeg_name=jpeg, prep=prep,
+                                           rec_narrow=[TrtRunner(narrow[w]) for w in widths])
                     pipe.config["calibrator"] = args.calibrator if precision == "int8" else None
                     yield pipe
 
@@ -230,7 +236,7 @@ def _assistant_pipelines(args):
     oc_path, _ = trt_engine.build(MODELS[oc_name]["onnx"], "fp16")
     charset = ocr.load_charset("models/ppocr5_rec_en.chars.txt")
     for size, precision in itertools.product(args.sizes, args.precisions):
-        name = f"barcode_yolo11n_{size}"
+        name = f"{args.bc_model}_{size}"
         print(f"> assistant: barcode {size} [{precision}] + ocr {args.ocr_size} [fp16]")
         bc_path = _engine(MODELS[name]["onnx"], precision, size, args, yolo.letterbox_into, "bc")
         for jpeg, prep, order in itertools.product(args.jpeg, args.prep, args.order) if bc_path else []:
@@ -296,6 +302,21 @@ def _print_pipeline_table(workload, rows):
           "\nvs TC53 = Zebra's published time for the same job at that input size / our total p50 (>1: Jetson faster)")
 
 
+def _stall_writer(f, args, dev, original_mode=None):
+    """The watchdog's partial row goes to the same results file before the process exits, and the
+    power mode is put back (the exit skips cmd_pipeline's finally)."""
+    def write(row):
+        row.update(timestamp=dt.datetime.now().isoformat(timespec="seconds"), host=socket.gethostname(),
+                   label=args.label, device=dev, data=args.data, serialize=args.serialize)
+        f.write(json.dumps(row) + "\n")
+        f.flush()
+        print(f"  partial row written to {f.name}")
+        if original_mode and power.current() != original_mode:
+            print(f"  restoring power mode {original_mode}")
+            power.set_mode(original_mode, settle_s=0)
+    return write
+
+
 def cmd_pipeline(args):
     from . import barcode, ocr
     from . import pipeline as pipe_run
@@ -308,6 +329,9 @@ def cmd_pipeline(args):
     args.precisions = args.precisions or defaults["precisions"]
     args.ocr_size = args.ocr_size or defaults.get("ocr_size")
     args.gallery = args.gallery or defaults.get("gallery")
+    if args.serialize != "none":
+        from .runner import TrtRunner
+        TrtRunner.serialize = {"rec": ("ppocr5_rec",), "all": ("",)}[args.serialize]
     sensors = Sensors()
     if args.workload == "assistant":
         from . import assistant
@@ -339,9 +363,12 @@ def cmd_pipeline(args):
                         for workers in args.workers:
                             print(f"  workers {workers}")
                             r = pipe_run.run(pipe, frames, sensors, warmup_s=args.warmup, duration_s=args.duration,
-                                             min_frames=args.min_frames, workers=workers, series_s=args.series)
+                                             min_frames=args.min_frames, workers=workers, series_s=args.series,
+                                             stall_s=args.stall_s, on_stall=_stall_writer(f, args, dev, original))
                             r.update(timestamp=dt.datetime.now().isoformat(timespec="seconds"),
                                      host=socket.gethostname(), label=args.label, device=dev, data=args.data)
+                            if args.serialize != "none":
+                                r["serialize"] = args.serialize
                             f.write(json.dumps(r) + "\n")
                             f.flush()
                             rows.append(r)
@@ -426,6 +453,17 @@ def main():
                     help="pipeline copies run as threads on overlapping frames (1 = one frame at a time); a list sweeps")
     pl.add_argument("--series", type=float, default=0,
                     help="also store throughput/latency/telemetry per window of this many seconds (soak runs)")
+    pl.add_argument("--rec-buckets", nargs="+", default=["640"], metavar="W[,W...]",
+                    help="ocr only: recognizer widths per configuration, e.g. 640 (pad every line to 640) and "
+                         "320,480,640 (width buckets); a list sweeps")
+    pl.add_argument("--bc-model", default="barcode_yolo11n", choices=["barcode_yolo11n", "barcode_real_yolo11n"],
+                    help="barcode/assistant: detector weights (synthetic-trained, or fine-tuned on real photos)")
+    pl.add_argument("--stall-s", type=float, default=120,
+                    help="watchdog: if no frame finishes for this many seconds, write a partial row with every "
+                         "thread's stack and exit (0 = off)")
+    pl.add_argument("--serialize", default="none", choices=["none", "rec", "all"],
+                    help="diagnostic: run the OCR recognizer's (rec) or every engine's (all) inferences one at a "
+                         "time under a process-wide lock instead of overlapping on the GPU")
     pl.add_argument("--order", nargs="+", default=["sequential", "concurrent"], choices=["sequential", "concurrent"],
                     help="assistant only: barcode and OCR branches one after the other, or in parallel threads")
     pl.add_argument("--ocr-size", type=int, choices=[640, 1280, 1600, 2560], help="assistant only: OCR detector size")

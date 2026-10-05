@@ -8,6 +8,7 @@ Zebra references are the AI Data Capture SDK's own barcode model on a TC53 (QCS6
 Zebra's "detection time" probably includes pre/postprocessing, so it sits between our
 gpu_ms and the pipeline's preprocess+infer+postprocess; "detection + decode" is end to end.
 """
+import itertools
 
 QCS6490 = "Qualcomm QCS6490 (Zebra TC53/TC58 class)"
 AIHUB = "https://huggingface.co/qualcomm/{}"
@@ -58,11 +59,15 @@ MODELS = {
 
 # Barcode detector: YOLO11n fine-tuned on host/make_barcodes.py scenes, at Zebra's three input sizes.
 # Zebra's model is its own (unpublished architecture); only the input size and job match.
-for _size, _det, _dd in [(640, 22, 57), (1280, 59, 94), (1600, 89, 124)]:
-    MODELS[f"barcode_yolo11n_{_size}"] = {
-        "onnx": f"models/barcode_yolo11n_{_size}.onnx",
+# barcode_real_yolo11n is the same network fine-tuned further on BarBeR's real photos plus the
+# synthetic set (host/make_barber.py --yolo, host/train_barcode.py --name barcode_real).
+for (_family, _trained), (_size, _det, _dd) in itertools.product(
+        [("barcode_yolo11n", "synthetic-trained"), ("barcode_real_yolo11n", "real + synthetic fine-tune")],
+        [(640, 22, 57), (1280, 59, 94), (1600, 89, 124)]):
+    MODELS[f"{_family}_{_size}"] = {
+        "onnx": f"models/{_family}_{_size}.onnx",
         "task": "detection",
-        "workload": "Barcode localization (1D + 2D), synthetic-trained",
+        "workload": f"Barcode localization (1D + 2D), {_trained}",
         "input": f"1x3x{_size}x{_size}",
         "params_m": 2.58,
         "license": "AGPL-3.0 (Ultralytics)",
@@ -94,6 +99,11 @@ MODELS["ppocr5_rec_en"] = {
     "license": "Apache-2.0 (PaddleOCR)",
     "references": [],
 }
+
+# Width buckets: the same recognizer pinned to narrower inputs, so short lines aren't padded to 640.
+for _w in (320, 480):
+    MODELS[f"ppocr5_rec_en_w{_w}"] = {**MODELS["ppocr5_rec_en"], "onnx": f"models/ppocr5_rec_en_w{_w}.onnx",
+                                      "input": f"8x3x48x{_w}"}
 # Context only (different model): EasyOCR on the QCS6490, from Qualcomm AI Hub, input 608x800.
 EASYOCR_QCS6490 = [_qcs("TFLite", "w8a8", 52.253, "EasyOCR") | {"covers": "detector (CRAFT), NPU"},
                    _qcs("TFLite", "w8a8", 181.161, "EasyOCR") | {"covers": "recognizer, runs on CPU", "unit": "CPU"}]

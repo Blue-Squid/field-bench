@@ -61,15 +61,15 @@ def export_mobilenetv3l_embed():
     print(f"  ONNX vs PyTorch: max abs diff {err:.3g} (|embedding| max {np.abs(ref).max():.3g})")
 
 
-def export_barcode(size):
+def export_barcode(size, family="barcode_yolo11n"):
     """YOLO11n fine-tuned on barcodes (host/train_barcode.py), at one of Zebra's input sizes."""
     from ultralytics import YOLO
 
-    weights = MODELS / "_ultralytics" / "barcode_yolo11n.pt"
+    weights = MODELS / "_ultralytics" / f"{family}.pt"
     if not weights.exists():
         raise SystemExit(f"{weights} missing: run host/make_barcodes.py and host/train_barcode.py first")
     out = YOLO(str(weights)).export(format="onnx", imgsz=size, opset=OPSET, simplify=True, dynamic=False, batch=1)
-    shutil.move(out, MODELS / f"barcode_yolo11n_{size}.onnx")
+    shutil.move(out, MODELS / f"{family}_{size}.onnx")
 
 
 PPOCR = "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv5"
@@ -111,12 +111,18 @@ def export_ocr_det(size):
     _static(_ppocr_source("det"), MODELS / f"ppocr5_det_{size}.onnx", (1, 3, size, size))
 
 
-def export_ocr_rec():
+REC_BUCKETS = (320, 480)  # extra recognizer widths; 640 is ppocr5_rec_en itself (fieldbench/ocr.py)
+
+
+def export_ocr_rec(width=640):
+    """PP-OCRv5 recognizer at batch 8 x 48 px x width. Narrower widths are buckets for short lines."""
     import onnx
 
     src = _ppocr_source("rec")
-    dst = MODELS / "ppocr5_rec_en.onnx"
-    _static(src, dst, OCR_REC_SHAPE)
+    dst = MODELS / ("ppocr5_rec_en.onnx" if width == 640 else f"ppocr5_rec_en_w{width}.onnx")
+    _static(src, dst, (*OCR_REC_SHAPE[:3], width))
+    if width != 640:
+        return
     # Keep the character list next to the model: TensorRT engines don't carry ONNX metadata.
     chars = {p.key: p.value for p in onnx.load(src).metadata_props}["character"]
     (MODELS / "ppocr5_rec_en.chars.txt").write_text(chars)
@@ -126,7 +132,9 @@ EXPORTERS = {"yolo11n": export_yolo11n, "mobilenetv3l": export_mobilenetv3l,
              "mobilenetv3l_embed": export_mobilenetv3l_embed,
              **{f"ppocr5_det_{s}": (lambda s=s: export_ocr_det(s)) for s in (640, 1280, 1600, 2560)},
              "ppocr5_rec_en": export_ocr_rec,
-             **{f"barcode_yolo11n_{s}": (lambda s=s: export_barcode(s)) for s in (640, 1280, 1600)}}
+             **{f"ppocr5_rec_en_w{w}": (lambda w=w: export_ocr_rec(w)) for w in REC_BUCKETS},
+             **{f"{fam}_{s}": (lambda s=s, fam=fam: export_barcode(s, fam))
+                for fam in ("barcode_yolo11n", "barcode_real_yolo11n") for s in (640, 1280, 1600)}}
 
 
 def main():

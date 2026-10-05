@@ -28,6 +28,26 @@ def _read(path, cast=int):
         return None
 
 
+def _kb_field(path, key):
+    """A "Key:   1234 kB" line from a /proc file, in MB."""
+    try:
+        with open(path) as f:
+            for line in f:
+                if line.startswith(key + ":"):
+                    return int(line.split()[1]) / 1024
+    except OSError:
+        pass
+    return None
+
+
+def _meminfo(key):
+    return _kb_field("/proc/meminfo", key)
+
+
+def _status(key):
+    return _kb_field("/proc/self/status", key)
+
+
 def _find_hwmon(name):
     for h in sorted(glob.glob("/sys/class/hwmon/hwmon*")):
         if _read(f"{h}/name", str) == name:
@@ -83,6 +103,10 @@ class Sensors:
             s["emc_mhz"] = self.jtop.memory["EMC"]["cur"] / 1e3  # kHz
         except Exception:
             s["emc_mhz"] = None
+        # Memory and cumulative over-current alarms, for soak series (a leak or the power limit).
+        s["mem_avail_mb"] = _meminfo("MemAvailable")
+        s["rss_mb"] = _status("VmRSS")
+        s["oc_events"] = self.throttle_events()
         return s
 
     def throttle_events(self):
